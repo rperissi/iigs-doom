@@ -30,6 +30,9 @@ CLEARCLEAN    .macro  p
               .extern P_SetMobjState, P_SpawnMobj, P_DropWeapon, AM_Stop, I_Error
               .extern R_PointToAngle3, FixedMulAngle, finesine, finecosine
               .extern IIGS_MulLo16, _Mul32, _Div32, _Div16, notePeak
+#ifdef NETGAME
+              .extern _g_netgame
+#endif
 
 PL            .equ    _g_player
 BONUSADD      .equ    6
@@ -454,6 +457,42 @@ giveAmmo:     cmp     ##CONST_AM_NOAMMO
 ;;; giveWeapon: P_GiveWeapon(player, IN_WEAPON, dropped = C != 0): its ammo
 ;;; (1 clip dropped, else 2) and the weapon. Out: carry set if either.
 giveWeapon:   pha
+#ifdef NETGAME
+              lda     .near _g_netgame      ; a placed weapon in a net game
+              beq     10$                   ;   stays for ever (Doom): the
+              lda     1,s                   ;   first time, 5 clips, the
+              bne     10$                   ;   sound; no message, no pickup
+              lda     .near IN_WEAPON
+              asl     a
+              tax
+              lda     abs:.near (PL+OFS_PL_WEAPONOWNED),x
+              bne     11$
+              lda     ##1
+              sta     abs:.near (PL+OFS_PL_WEAPONOWNED),x
+              lda     .near (PL+OFS_PL_BONUSCOUNT)
+              clc
+              adc     ##BONUSADD
+              sta     .near (PL+OFS_PL_BONUSCOUNT)
+              lda     .near IN_WEAPON
+              asl     a
+              tax
+              lda     long:weaponOffsets,x
+              tax
+              lda     abs:.near (weaponinfo+OFS_WI_AMMO),x
+              cmp     ##CONST_AM_NOAMMO
+              beq     12$
+              ldx     ##5
+              jsr     .kbank giveAmmo
+12$:          lda     .near IN_WEAPON
+              sta     .near (PL+OFS_PL_PENDINGWEAPON)
+              jsr     .kbank playerMo
+              lda     ##CONST_SFX_WPNUP
+              jsl     long:S_StartSound
+11$:          plx
+              clc
+              rts
+10$:
+#endif
               lda     .near IN_WEAPON       ; the ammo of the weapon
               asl     a                     ; weapon 0..8 -> word offset-table index
               tax

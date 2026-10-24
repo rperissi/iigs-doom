@@ -352,6 +352,16 @@ G_BuildTiccmd:
               adc     .near (netcmd+OFS_TC_SIDEMOVE)
               sta     .near (netcmd+OFS_TC_SIDEMOVE)
               rep     #0x20
+#ifdef NETGAME
+              lda     .near _g_menuactive   ; the menu's keys are the menu's:
+              beq     18$                   ;   an empty command under it
+              stz     .near netcmd          ;   (the world runs on)
+              stz     .near (netcmd+2)
+              sep     #0x20
+              stz     .near (netcmd+4)
+              rep     #0x20
+18$:
+#endif
 ;;; Index by tic number so commands dropped in the menu cannot shift
 ;;; the ring; G_Ticker reads the slot for gametic.
               lda     .near maketic

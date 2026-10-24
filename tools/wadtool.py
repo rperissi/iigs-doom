@@ -488,13 +488,15 @@ REMOVED_PREFIXES = [
 KEPT_320 = ['STARMS', 'STT']
 
 
-def remove_unused(wad, flat_span, layout, keep_demos):
+def remove_unused(wad, flat_span, layout, keep_demos, netthings=False):
     wad.remove('CREDIT')
     wad.remove('SW18_7')
     for p in REMOVED_PREFIXES:
         if layout == 320 and p in KEPT_320:
             continue
         if keep_demos and p in ('DEMO1', 'DEMO2'):
+            continue
+        if netthings and p == 'WIFRGS':    # the deathmatch intermission
             continue
         wad.remove_prefix(p)
     if flat_span:
@@ -782,7 +784,7 @@ def main():
         wad.set('WIMAP0', raw_scaled(wad.get('WIMAP0'), 240, 160))
         wad.set('STBAR', raw_crop(wad.get('STBAR'), 240, 32))
 
-    remove_unused(wad, args.flat_span, args.layout, args.keep_demos)
+    remove_unused(wad, args.flat_span, args.layout, args.keep_demos, args.netthings)
     for name, data in maps.grids.items():
         wad.add(name, data)
     if args.store:

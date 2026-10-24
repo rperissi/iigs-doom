@@ -13,6 +13,7 @@
               .extern _Dp, _g_player, _g_wminfo, _g_gamemap, G_WorldDone
 #ifdef NETGAME
               .extern _g_playeringame, _g_consoleplayer, _g_psave
+              .extern _g_deathmatch, _g_frags
 #endif
               .extern W_GetNumForName, W_GetLumpByNum, V_DrawRawFullScreen
               .extern V_DrawNumPatchScaled, V_DrawPatchScaled, S_StartSound
@@ -65,7 +66,15 @@ L_WIMSTT      .equ    24
 L_WIPAR       .equ    26
 L_WINUM       .equ    28              ; WINUM0..9
 L_WILV        .equ    48              ; WILV00..08
+#ifdef NETGAME
+L_WIFRGS      .equ    66              ; "FRAGS" (the deathmatch stats)
+NUMLUMPS      .equ    34
+DM_ROWY       .equ    (SP_STATSY + LINEHEIGHT + 4) ; a player's row
+DM_ROWH       .equ    (LINEHEIGHT + 2)
+DM_NUMX       .equ    (SCREENW/2 + 2*FONTWIDTH) ; the right end of the frags
+#else
 NUMLUMPS      .equ    33
+#endif
 
               .section znear, bss
               .public _g_acceleratestage
@@ -127,6 +136,9 @@ lumpNames:    .asciz  "WIMAP0"
               .asciz  "WILV06"
               .asciz  "WILV07"
               .asciz  "WILV08"
+#ifdef NETGAME
+              .asciz  "WIFRGS"
+#endif
 lnodes:       .word   185, 164        ; the places of the levels on the map
               .word   148, 143
               .word   69, 122
@@ -772,6 +784,13 @@ drawStats:    jsr     .kbank slamBackground
               ldx     ##L_WIF
               jsr     .kbank lumpPatch
               jsr     .kbank drawCenteredPatch
+#ifdef NETGAME
+              lda     .near _g_deathmatch   ; a deathmatch: the frags in
+              beq     20$                   ;   place of the counts
+              jsr     .kbank drawFrags
+              brl     21$
+20$:
+#endif
               lda     ##SP_STATSY           ; kills, items, secret
               sta     .near WI_Y
               lda     ##SP_STATSX
@@ -793,6 +812,9 @@ drawStats:    jsr     .kbank slamBackground
               jsr     .kbank drawLump
               lda     .near cnt_secret
               jsr     .kbank drawPercent
+#ifdef NETGAME
+21$:
+#endif
               lda     ##SP_TIMEY            ; time
               sta     .near WI_Y
               lda     ##SP_TIMEX
@@ -827,6 +849,57 @@ drawStats:    jsr     .kbank slamBackground
               dex
 1$:           jsr     .kbank drawTime
               rtl
+
+#ifdef NETGAME
+;;; drawFrags: the deathmatch stats: FRAGS over a row per player, his
+;;; number (WINUM) and his frags (0 for a negative count: no minus sign in
+;;; the set), the map's arrow at the console player's row.
+drawFrags:    lda     ##SP_STATSY
+              sta     .near WI_Y
+              lda     ##(SCREENW/2 - 28)
+              ldx     ##L_WIFRGS
+              jsr     .kbank drawLump
+              stz     .near WI_I
+1$:           lda     .near WI_I            ; the row
+              beq     2$
+              lda     ##DM_ROWH
+2$:           clc
+              adc     ##DM_ROWY
+              sta     .near WI_Y
+              lda     .near WI_I            ; the player's number, 1 or 2
+              inc     a
+              sta     .near WI_N
+              lda     ##(SCREENW/2 - 4*FONTWIDTH)
+              sta     .near WI_X
+              lda     ##1
+              jsr     .kbank drawNum
+              lda     .near WI_I            ; his frags
+              asl     a
+              tax
+              lda     .near _g_frags,x
+              bpl     3$
+              lda     ##0
+3$:           sta     .near WI_N
+              lda     ##DM_NUMX
+              sta     .near WI_X
+              jsr     .kbank digitCount
+              jsr     .kbank drawNum
+              lda     .near WI_I            ; the arrow at the console
+              cmp     .near _g_consoleplayer ;   player's row
+              bne     4$
+              lda     .near WI_Y
+              clc
+              adc     ##14
+              sta     .near WI_Y
+              lda     ##(DM_NUMX + 12)
+              ldx     ##L_WIURH0
+              jsr     .kbank drawLump
+4$:           inc     .near WI_I
+              lda     .near WI_I
+              cmp     ##2
+              bcc     1$
+              rts
+#endif
 
 ;;; drawPercent: WI_drawPercent(SCREENW - SP_STATSX, WI_Y, C): nothing for
 ;;; a negative p; else the sign and the digits.
