@@ -12,6 +12,9 @@
 
               .extern _Dp, _g_player, _g_gameaction, _g_fps_show
               .extern P_GivePower, G_ExitLevel
+#ifdef NETGAME
+              .extern _g_netgame, netExitReq
+#endif
 
 PL            .equ    _g_player
 GOD_HEALTH    .equ    100             ; cheat grants: health
@@ -102,8 +105,17 @@ C_Responder:  lda     [.tiny _Dp]
               and     ##0x00ff              ; (the flags after the ldx)
               bne     4$
               stz     abs:.near CHT_P,x
+#ifdef NETGAME
+              lda     .near _g_netgame      ; the net game: idclev (the level
+              beq     5$                    ;   ends on both machines) and
+              cpx     ##(2 * 11)            ;   idrate only
+              beq     5$
+              cpx     ##(2 * 14)
+              bne     6$
+5$:
+#endif
               jsr     (.kbank cheats,x)
-              lda     ##1
+6$:           lda     ##1
               rtl
 4$:           inx
               inx
@@ -243,7 +255,16 @@ cheatBeholdL: lda     ##CONST_PW_INFRARED
               brl     power
 
 ;;; idclev: the level ends. idend: the finale.
-cheatClev:    jsl     long:G_ExitLevel
+cheatClev:
+#ifdef NETGAME
+              lda     .near _g_netgame
+              beq     1$
+              lda     ##1                   ; through the commands: both
+              sta     .near netExitReq      ;   machines (g_game65.s)
+              rts
+1$:
+#endif
+              jsl     long:G_ExitLevel
               rts
 cheatEnd:     lda     ##GA_VICTORY
               sta     .near _g_gameaction

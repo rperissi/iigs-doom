@@ -11,6 +11,9 @@
 #include "offsets.inc"
 
               .extern _Dp, _g_player, _g_wminfo, _g_gamemap, G_WorldDone
+#ifdef NETGAME
+              .extern _g_playeringame, _g_consoleplayer, _g_psave
+#endif
               .extern W_GetNumForName, W_GetLumpByNum, V_DrawRawFullScreen
               .extern V_DrawNumPatchScaled, V_DrawPatchScaled, S_StartSound
               .extern _Div32, _UDivMod32, _UDivMod16
@@ -261,8 +264,50 @@ WI_checkForAccelerate:
               stx     .near _g_acceleratestage
 4$:           ldx     ##1
               stx     .near (PL+OFS_PL_USEDOWN)
+#ifdef NETGAME
+              bra     6$
+#else
               rtl
+#endif
 5$:           stz     .near (PL+OFS_PL_USEDOWN)
+#ifdef NETGAME
+6$:
+;;; The other player's press too (his command is in his save slot, as
+;;; D_NetCmds puts it each tic), so the stages go on at the same tic on
+;;; both machines.
+              lda     .near (_g_playeringame+2)
+              beq     19$
+              ldx     ##0
+              lda     .near _g_consoleplayer
+              bne     10$
+              ldx     ##SIZEOF_PL
+10$:          lda     long:(_g_psave+OFS_PL_CMD+OFS_TC_BUTTONS),x
+              tay                           ; Y = his buttons
+              bit     ##BT_ATTACK
+              beq     12$
+              lda     long:(_g_psave+OFS_PL_ATTACKDOWN),x
+              bne     11$
+              lda     ##1
+              sta     .near _g_acceleratestage
+11$:          lda     ##1
+              sta     long:(_g_psave+OFS_PL_ATTACKDOWN),x
+              bra     13$
+12$:          lda     ##0
+              sta     long:(_g_psave+OFS_PL_ATTACKDOWN),x
+13$:          tya
+              bit     ##BT_USE
+              beq     15$
+              lda     long:(_g_psave+OFS_PL_USEDOWN),x
+              bne     14$
+              lda     ##1
+              sta     .near _g_acceleratestage
+14$:          lda     ##1
+              sta     long:(_g_psave+OFS_PL_USEDOWN),x
+              rtl
+15$:          lda     ##0
+              sta     long:(_g_psave+OFS_PL_USEDOWN),x
+19$:
+#endif
               rtl
 
 ;;; ---------------------------------------------------------------------------

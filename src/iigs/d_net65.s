@@ -59,7 +59,7 @@ NS_GO         .equ    3               ;   both machines are in
               .extern _Dp, _g_player, _g_gametic, maketic, cmds
               .extern _g_resident, _g_consoleplayer, _g_playeringame
               .extern _g_deathmatch, _g_netgame, P_SwapTo, G_DeferedInitNew
-              .extern I_Error, I_GetTime, prndindex, _g_psave
+              .extern I_Error, I_GetTime, prndindex, _g_psave, G_ExitLevel
 
               .section znear, bss
               .public netmaketic
@@ -308,7 +308,29 @@ D_NetCmds:    lda     .near _g_gametic
               sep     #0x20
               lda     .near (NT_C+4)
               sta     long:(_g_psave+OFS_PL_CMD+4),x
+              ;; a special command (BT_SPECIAL | BTS_NETEXIT, g_game65.s)
+              ;; from either player: the level ends, on both machines
+              cmp     #(0x80 | 3)
+              beq     5$
+              lda     .near (_g_player+OFS_PL_CMD+4)
+              cmp     #(0x80 | 3)
+              bne     6$
+5$:           lda     #0                    ; (no buttons from it)
+              sta     .near (_g_player+OFS_PL_CMD+4)
+              sta     long:(_g_psave+OFS_PL_CMD+4),x
               rep     #0x20
+              phx
+              jsl     long:G_ExitLevel
+              plx
+              sep     #0x20
+6$:           rep     #0x20
+#ifdef BENCHEXIT
+              lda     .near _g_gametic      ; the bench's level end (Makefile)
+              cmp     ##BENCHEXIT
+              bne     7$
+              jsl     long:G_ExitLevel
+7$:
+#endif
               lda     .near (_g_gametic+2)  ; gametic >= CMDS: the check
               bne     3$
               lda     .near _g_gametic

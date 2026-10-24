@@ -20,8 +20,10 @@
 ;;; Correct under the wrappers as they are: lines and P_TeleportMove of
 ;;; p_map65.s, isPlayer of p_switch65.s and p_mobj65.s.
 ;;;
-;;; Still one-player: lookForPlayers of p_enemy65.s, killMobj's frags and
-;;; killcount (the source's player), doCompleted and the saves of g_game65.s.
+;;; Still one-player: the saves of g_game65.s (refused in a net game).
+;;; lookForPlayers of p_enemy65.s, killMobj's frags and killcount (the
+;;; source's player), and doCompleted and doLoadLevel of g_game65.s
+;;; (P_PlayersFinish, P_PlayersLoadLevel here) take both under NETGAME.
 
               .rtmodel version, "1"
               .rtmodel core, "*"
@@ -605,6 +607,63 @@ rebornOne:    pha
               jsl     long:G_DeathMatchSpawnPlayer
 1$:           pla
               rts
+
+;;; ---------------------------------------------------------------------------
+;;; void P_PlayersFinish(void): G_DoCompleted's G_PlayerFinishLevel of each
+;;; player: the level-only powers and cards, the mobj and the palette
+;;; flashes go. The console player is resident after.
+;;; void P_PlayersLoadLevel(void): G_DoLoadLevel's part per player: a dead
+;;; player is reborn, and the frags of the level before go.
+;;; ---------------------------------------------------------------------------
+              .public P_PlayersFinish, P_PlayersLoadLevel
+P_PlayersFinish:
+              lda     ##0
+              jsr     .kbank finishOne
+              lda     .near (_g_playeringame+2)
+              beq     1$
+              lda     ##1
+              jsr     .kbank finishOne
+1$:           lda     .near _g_consoleplayer
+              jmp     long:P_SwapTo
+
+finishOne:    jsl     long:P_SwapTo
+              ldx     ##(2 * CONST_NUMPOWERS - 1)
+              sep     #0x20
+1$:           stz     .near (_g_player+OFS_PL_POWERS),x
+              dex
+              bpl     1$
+              ldx     ##(2 * CONST_NUMCARDS - 1)
+2$:           stz     .near (_g_player+OFS_PL_CARDS),x
+              dex
+              bpl     2$
+              rep     #0x20
+              stz     .near (_g_player+OFS_PL_MO)
+              stz     .near (_g_player+OFS_PL_MO+2)
+              stz     .near (_g_player+OFS_PL_EXTRALIGHT)
+              stz     .near (_g_player+OFS_PL_FIXEDCOLORMAP)
+              stz     .near (_g_player+OFS_PL_DAMAGECOUNT)
+              stz     .near (_g_player+OFS_PL_BONUSCOUNT)
+              rts
+
+P_PlayersLoadLevel:
+              stz     .near _g_frags
+              stz     .near (_g_frags+2)
+              lda     ##0
+              jsr     .kbank rebornDead
+              lda     .near (_g_playeringame+2)
+              beq     1$
+              lda     ##1
+              jsr     .kbank rebornDead
+1$:           lda     .near _g_consoleplayer
+              jmp     long:P_SwapTo
+
+rebornDead:   jsl     long:P_SwapTo
+              lda     .near (_g_player+OFS_PL_PLAYERSTATE)
+              cmp     ##CONST_PST_DEAD
+              bne     1$
+              lda     ##CONST_PST_REBORN
+              sta     .near (_g_player+OFS_PL_PLAYERSTATE)
+1$:           rts
 
 ;;; ---------------------------------------------------------------------------
 ;;; void P_PlayerDied(void): killMobj of p_inter65.s, the target a player,

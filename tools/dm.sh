@@ -14,7 +14,10 @@
 # KEYS_A / KEYS_B override them (TIC:KEY:TICS lists).
 #
 # Env: MAME (the binary), ZIP (cfg/zipN, default 7), TICS, RUN (the
-# emulated bound, default 600), KEYS_A, KEYS_B, PORT, COOP_STARTS (below).
+# emulated bound, default 600), KEYS_A, KEYS_B, PORT, COOP_STARTS (below),
+# TICPOKE (PROBE_TICPOKE TIC:ADDR:VALUE words, on both seats: the same
+# state on both, e.g. a level end: TICPOKE=300:$(tools/symaddr.py
+# build/doom.elf _g_gameaction):6).
 # Seat A is player 0 (it connects first).
 cd "$(dirname "$0")/.." || exit 1
 MAME=${MAME:-../webifi-mame/cogs}
@@ -41,9 +44,9 @@ KEYS_B=${KEYS_B-40:Right Arrow:20,120:Left Arrow:20,160:Control:10}
 # P_SpawnPlayerN becomes 0 in the loaded code), so the players spawn at
 # their own starts, next to each other in E1M1: player 0 turning left
 # about 72 degrees faces player 1.
-POKE=
+POKE=${POKE-}
 if [ -n "$COOP_STARTS" ]; then
-    POKE=$(python3 - <<'PY'
+    POKE=${POKE:+$POKE,}$(python3 - <<'PY'
 import struct, subprocess
 addr = int(subprocess.check_output(['python3', 'tools/symaddr.py', 'build/doom.elf', 'P_SpawnPlayerN']).decode(), 16)
 d = open('build/doom.elf', 'rb').read()
@@ -79,7 +82,8 @@ seat() {
       COGS_EMU_NVRAM="$ROOT/$dir/cogs_nv" \
       PROBE_DISKS="$disks" PROBE_SECONDS="$RUN" PROBE_GAMETIC="$G" \
       PROBE_TICSHR="$TICS" PROBE_TICEXIT=1 PROBE_TEXTEXIT=1 PROBE_DUMP="$DUMP" \
-      PROBE_TICPRESS="$keys" PROBE_POKE="$POKE" PROBE_EXTRA="${PROBE_EXTRA:-/dev/null}" \
+      PROBE_TICPRESS="$keys" PROBE_POKE="$POKE" PROBE_TICPOKE="$TICPOKE" \
+      PROBE_EXTRA="${PROBE_EXTRA:-/dev/null}" \
       "$ROOT/$MAME" apple2gs -rompath "$ROOT/roms" -ramsize 8M -sl3 cogs \
       -flop3 "$ROOT/$dir/disk1.po" -window -nomaximize -video none -sound none \
       -nothrottle -skip_gameinfo -autoboot_script "$ROOT/tools/probe.lua" \

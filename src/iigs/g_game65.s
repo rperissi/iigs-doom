@@ -46,6 +46,12 @@ MAXPLMOVE     .equ    0x32            ; forwardmove[1]
 BT_ATTACK     .equ    1
 BT_USE        .equ    2
 BT_CHANGE     .equ    4
+#ifdef NETGAME
+BT_SPECIAL    .equ    0x80            ; a special command, as Doom's: no
+BTS_NETEXIT   .equ    3               ;   buttons; code 3: the level ends
+                                      ;   on both machines (idclev, m_cheat65.s;
+                                      ;   D_NetCmds acts on it)
+#endif
 GA_NOTHING    .equ    0               ; gameaction_t
 GA_LOADLEVEL  .equ    1
 GA_NEWGAME    .equ    2
@@ -115,6 +121,7 @@ pars:         .byte   0, 30, 75, 120, 90, 165, 180, 180, 30, 165
               .section znear, bss
               .public _g_gameaction, _g_gamestate, _g_gameskill, _g_gamemap, _g_player
               .extern maketic, P_PlayersReborn, D_NetCmds
+              .extern P_PlayersFinish, P_PlayersLoadLevel
               .public _g_gametic, _g_basetic, _g_totalkills, _g_totallive, _g_totalitems
               .public _g_totalsecret, _g_wminfo, _g_respawnmonsters, _g_usergame
               .public _g_timingdemo, _g_demoplayback, _g_singledemo
@@ -146,6 +153,10 @@ savegameslot: .space  2               ; (a byte)
 secretexit:   .space  2
 defdemoname:  .space  4
 netcmd:       .space  SIZEOF_TC       ; the command G_BuildTiccmd makes
+#ifdef NETGAME
+              .public netExitReq
+netExitReq:   .space  2               ; the next command is BTS_NETEXIT
+#endif
               .public cmds            ; (d_net65.s)
 cmds:         .space  (CMDS * 8)      ; Tic t uses slot t & (CMDS-1).
               .space  4               ; Keep later near data at its offsets.
@@ -314,6 +325,15 @@ G_BuildTiccmd:
               asl     a
               ora     ##BT_CHANGE
               jsr     .kbank orButtons
+#ifdef NETGAME
+              lda     .near netExitReq      ; the level end for both machines
+              beq     17$
+              stz     .near netExitReq
+              sep     #0x20
+              lda     #(BT_SPECIAL | BTS_NETEXIT)
+              sta     .near (netcmd+OFS_TC_BUTTONS)
+              rep     #0x20
+#endif
 17$:          jsr     .kbank mouseMoves     ; the mouse
               lda     .near GB_FORWARD      ; the limits
               jsr     .kbank clampMove
@@ -654,12 +674,17 @@ doLoadLevel:  lda     .near wipegamestate   ; from a level: a wipe
               lda     ##0xffff
               sta     .near wipegamestate
 1$:           stz     .near _g_gamestate    ; GS_LEVEL
+#ifdef NETGAME
+              jsl     long:P_PlayersLoadLevel ; both players (and the frags)
+#else
               lda     .near (PL+OFS_PL_PLAYERSTATE)
               cmp     ##CONST_PST_DEAD
               bne     2$
               lda     ##CONST_PST_REBORN
               sta     .near (PL+OFS_PL_PLAYERSTATE)
-2$:           jsl     long:P_SetSecnodeFirstpoolToNull
+2$:
+#endif
+              jsl     long:P_SetSecnodeFirstpoolToNull
               lda     .near _g_gamemap
               jsl     long:bmLoad           ; P_SetupLevel with "LOADING"
               stz     .near _g_gameaction
@@ -742,6 +767,9 @@ G_SecretExitLevel:
 ;;; doCompleted: G_DoCompleted: the player finishes the level; the
 ;;; intermission with the counts, the times and the next level.
 doCompleted:  stz     .near _g_gameaction
+#ifdef NETGAME
+              jsl     long:P_PlayersFinish  ; both players
+#else
               ldx     ##(2 * CONST_NUMPOWERS - 1) ; Clear level-only powers and
                                                   ; cards.
               sep     #0x20                 ; Also mobj and palette flashes.
@@ -759,6 +787,7 @@ doCompleted:  stz     .near _g_gameaction
               stz     .near (PL+OFS_PL_FIXEDCOLORMAP)
               stz     .near (PL+OFS_PL_DAMAGECOUNT)
               stz     .near (PL+OFS_PL_BONUSCOUNT)
+#endif
               lda     .near automapmode
               bit     ##AM_ACTIVE
               beq     3$

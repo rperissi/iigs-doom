@@ -20,6 +20,9 @@ OBJ      := $(BUILD)/obj
 # recorded only then.
 # make MAXTICS=M: a frame runs at most M tics of the game (1 to 15; the
 # default is 4, 8 with TICSTEP > 1); a slower frame makes the game slower.
+# make NETGAME=1 BENCHEXIT=300: the bench's level end: the level ends at
+# that game tic on both machines (tools/dm.sh, the intermission and the
+# next level in lockstep).
 # make NETGAME=1: a two-player deathmatch over a CoGS card. The game joins
 # the relay NETHOST:NETPORT (tools/dmrelay.py) through the card in slot
 # COGSSLOT at the start instead of the title, and the disks keep the start
@@ -31,7 +34,8 @@ COGSSLOT ?= 3
 ASFLAGS  := --code-model=large --data-model=medium -I tools/calypsi/src/lib/lowlevel \
             $(if $(PHASES),-D IIGS_PHASES) $(if $(PISCHECK),-D PISCHECK) -D TICSTEP=$(TICSTEP) \
             $(if $(MAXTICS),-D MAXTICS=$(MAXTICS)) \
-            $(if $(NETGAME),-D NETGAME -D NETHOST=\"$(NETHOST)\" -D NETPORT=$(NETPORT)) -D COGSSLOT=$(COGSSLOT)
+            $(if $(NETGAME),-D NETGAME -D NETHOST=\"$(NETHOST)\" -D NETPORT=$(NETPORT)) -D COGSSLOT=$(COGSSLOT) \
+            $(if $(BENCHEXIT),-D BENCHEXIT=$(BENCHEXIT))
 IIGS_S   := src/iigs/crt0.s src/iigs/iigs_asm.s src/iigs/irq65.s src/iigs/m_fixed65.s src/iigs/m_recip65.s \
             src/iigs/patch65.s src/iigs/r_iigs65.s src/iigs/r_sprite65.s src/iigs/r_seg65.s \
             src/iigs/p_sight65.s src/iigs/p_enemy65.s src/iigs/p_mobj65.s src/iigs/p_path65.s src/iigs/p_attack65.s src/iigs/p_pspr65.s src/iigs/p_user65.s \
@@ -65,7 +69,7 @@ all: disks
 disks: $(BUILD)/disk1.po
 
 # Rebuild everything when the build switches change
-DEFSTAMP := $(OBJ)/defs-$(if $(TIMEDEMO),timedemo,game)$(if $(PHASES),-phases)$(if $(PISCHECK),-pischeck)-tic$(TICSTEP)$(if $(MAXTICS),-max$(MAXTICS))$(if $(NETGAME),-net$(NETPORT)-slot$(COGSSLOT)).stamp
+DEFSTAMP := $(OBJ)/defs-$(if $(TIMEDEMO),timedemo,game)$(if $(PHASES),-phases)$(if $(PISCHECK),-pischeck)-tic$(TICSTEP)$(if $(MAXTICS),-max$(MAXTICS))$(if $(NETGAME),-net$(NETPORT)-slot$(COGSSLOT))$(if $(BENCHEXIT),-exit$(BENCHEXIT)).stamp
 $(DEFSTAMP): | $(OBJ)
 	rm -f $(OBJ)/defs-*.stamp
 	touch $@
