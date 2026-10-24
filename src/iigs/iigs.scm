@@ -197,7 +197,7 @@
     (memory J13Pump (address (#x0486d0 . #x0488ff))
             (section (j13pump #x0486d0)))
     (memory Code5a (address (#x050000 . #x0508ff))
-            (section farcode data_init_table cfar far))
+            (section playerscode farcode data_init_table cfar far))
     (memory Code5b (address (#x050900 . #x050aff))
             (section coldcode))
     (memory HotDraw (address (#x050b00 . #x051a1a))

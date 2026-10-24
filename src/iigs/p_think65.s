@@ -14,6 +14,7 @@
               .extern _Dp, _g_player, _g_menuactive, _g_gameaction
               .extern _g_demoplayback, _g_gamestate
               .extern Z_Free, P_PlayerThink, P_RunThinkers, P_UpdateSpecials
+              .extern P_PlayersThink
               .extern poolFree
               .extern P_MapEnd
 #if TICSTEP > 1
@@ -199,11 +200,8 @@ P_Ticker:     lda     .near _g_menuactive   ; paused in the menu, after a tic
               lda     .near _g_gamestate    ; not in the intermission
               cmp     ##CONST_GS_LEVEL
               bne     2$
-              lda     ##.near _g_player
-              sta     dp:.tiny _Dp
-              lda     ##.word2 _g_player
-              sta     dp:.tiny (_Dp+2)
-              jsl     long:P_PlayerThink
+              jsl     long:P_PlayersThink   ; (p_players65.s) each player, his struct resident
+              .space  12                    ; the size of the one-player call it replaced
 #if TICSTEP > 1
               jsr     .kbank playerMobj     ; the tic of his mobj
 2$:

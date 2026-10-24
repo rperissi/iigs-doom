@@ -11,6 +11,7 @@
 
 #include "offsets.inc"
 
+              .extern P_PlayerOfMobj
               .extern _Dp, mobjinfo, states, _g_player, skyflatnum, _g_sides
               .extern _g_ceilingline, _g_openrange, _g_opentop, _g_openbottom
               .extern P_TryMove, P_SetMobjState, P_Random, S_StartSound
@@ -715,18 +716,8 @@ hitSlideLine: lda     .near SL_LINE
 ;;; ---------------------------------------------------------------------------
               .public P_MobjIsPlayer
 P_MobjIsPlayer:
-              lda     .near (_g_player+OFS_PL_MO)
-              cmp     dp:.tiny _Dp
-              bne     1$
-              lda     .near (_g_player+OFS_PL_MO+2)
-              cmp     dp:.tiny (_Dp+2)
-              bne     1$
-              ldx     ##.word2 _g_player
-              lda     ##.near _g_player
-              rtl
-1$:           lda     ##0
-              tax
-              rtl
+              jmp     long:P_PlayerOfMobj   ; (p_players65.s) either player's
+              .space  16                    ; the size of the one-player test
 
 ;;; ---------------------------------------------------------------------------
 ;;; void P_ExplodeMissile(mobj_t __far* mo)
