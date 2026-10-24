@@ -16,6 +16,7 @@
               .extern _Dp, mobjinfo, states, _g_thingPool, _g_thingPoolSize
               .extern _g_gameskill, _g_totallive, _g_totalkills, _g_totalitems
               .extern _g_demoplayback, _g_player, _g_linetarget
+              .extern P_SpawnPlayerN
               .extern P_Random, P_SetThingPosition, P_UnsetThingPosition
               .extern P_AddThinker, P_MobjThinker, P_MobjBrainlessThinker
               .extern addIfFunc, linkRemove
@@ -921,11 +922,12 @@ P_SpawnMapThing:
               sta     .near SP_MT
               lda     dp:.tiny (_Dp+2)
               sta     .near (SP_MT+2)
-              ldy     ##OFS_MT_TYPE         ; the player
+              ldy     ##OFS_MT_TYPE         ; a player start: his player
               lda     [.tiny _Dp],y
-              cmp     ##1
-              bne     1$
-              brl     spawnPlayer
+              jsl     long:P_SpawnPlayerN   ; (p_players65.s) carry: it was one
+              bcc     1$
+              rtl
+              .space  1                     ; (the size of the one-player test)
 1$:           ldy     ##OFS_MT_OPTIONS      ; the skill flags: easy, hard, normal
               lda     [.tiny _Dp],y
               ldx     .near _g_gameskill
@@ -1057,6 +1059,7 @@ mtAngle:      jsr     .kbank mtArg
 
 ;;; spawnPlayer: P_SpawnPlayer(mthing->x, mthing->y, mthing->angle): the
 ;;; mobj of the player (reborn first after a death) with a new status.
+              .public spawnPlayer   ; for P_SpawnPlayerN, his struct resident
 spawnPlayer:  lda     .near (_g_player+OFS_PL_PLAYERSTATE)
               cmp     ##CONST_PST_REBORN
               bne     1$

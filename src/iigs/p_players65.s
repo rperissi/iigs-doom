@@ -12,6 +12,13 @@
 ;;; Placement: this file's code is in its own section (playerscode, Code5a
 ;;; of iigs.scm), and the edits in the other files are size neutral, so the
 ;;; packed coldcode/farcode fragments of the stock build do not move.
+;;;
+;;; Still one-player (the identity tests that read _g_player's mobj and
+;;; must know both players): thrust of p_inter65.s (the chainsaw of the
+;;; source), lines and P_TeleportMove of p_map65.s, isPlayer of p_switch65.s
+;;; and p_mobj65.s, the listener of s_sound65.s, lookForPlayers of
+;;; p_enemy65.s, P_SetupLevel's clearing of the mobj (player 1's save slot
+;;; keeps the old one), doCompleted and the saves of g_game65.s.
 
               .rtmodel version, "1"
               .rtmodel core, "*"
@@ -19,6 +26,8 @@
 #include "offsets.inc"
 
               .extern _Dp, _g_player, P_PlayerThink
+              .extern mobjThinker0, damageMobj0, touchSpecialThing0, evTeleport0
+              .extern spawnPlayer
 
               .section znear, bss
               .public _g_resident, _g_consoleplayer, _g_playeringame, _g_deathmatch
@@ -26,6 +35,7 @@ _g_resident:  .space  2               ; the player whose struct is _g_player
 _g_consoleplayer: .space 2            ; the player at this machine
 _g_playeringame: .space 4             ; player 0 is always in; a word for player 1
 _g_deathmatch: .space 2
+WR_T:         .space  2               ; a wrapper's word across a swap
 
               .section zfar, bss
 _g_psave:     .space  2 * SIZEOF_PL   ; a player's struct while he is not resident
@@ -132,4 +142,138 @@ P_PlayerOfMobj:
 7$:           pla
 8$:           lda     ##0
               tax
+              rtl
+
+;;; ---------------------------------------------------------------------------
+;;; The wrappers. Code that acts on a mobj that may be a player's body runs
+;;; with that player's struct resident: the routine is entered here, the
+;;; swap happens around the real one, and the resident player before is
+;;; put back after, so a caller in the middle of its own player's think
+;;; (a shot that hits the other player) sees its struct again. Each real
+;;; routine keeps its code and its place; only its public name moved here.
+;;; ---------------------------------------------------------------------------
+
+;;; swapForMobj: _Dp[0-3] = a mobj. If it is a player's, his struct becomes
+;;; resident. Out: C = the player resident before (for P_SwapTo after).
+;;; Keeps _Dp and the other direct page arguments.
+swapForMobj:  lda     .near _g_resident
+              pha
+              jsl     long:P_PlayerOfMobj
+              cmp     ##0
+              bne     1$
+              cpx     ##0
+              beq     9$                    ; not a player's
+1$:           cmp     ##.near _g_player     ; the resident one already
+              bne     2$
+              cpx     ##.word2 _g_player
+              beq     9$
+2$:           lda     .near _g_resident
+              eor     ##1
+              jsl     long:P_SwapTo
+9$:           pla
+              rts
+
+;;; swapForMobj4: the same for the mobj in _Dp[4-7] (the second argument).
+swapForMobj4: pha
+              jsr     .kbank exchangeArgs
+              pla
+              jsr     .kbank swapForMobj
+              pha
+              jsr     .kbank exchangeArgs
+              pla
+              rts
+exchangeArgs: ldx     dp:.tiny _Dp
+              ldy     dp:.tiny (_Dp+4)
+              sty     dp:.tiny _Dp
+              stx     dp:.tiny (_Dp+4)
+              ldx     dp:.tiny (_Dp+2)
+              ldy     dp:.tiny (_Dp+6)
+              sty     dp:.tiny (_Dp+2)
+              stx     dp:.tiny (_Dp+6)
+              rts
+
+;;; void P_MobjThinker(mobj_t __far* mobj)       In: _Dp[0-3].
+;;; A player's body (type MT_PLAYER, 0) moves, picks up, crosses lines and
+;;; teleports with his struct resident. Every other mobj goes straight on.
+              .public P_MobjThinker
+P_MobjThinker:
+              ldy     ##OFS_MO_TYPE
+              lda     [.tiny _Dp],y         ; CONST_MT_PLAYER is 0
+              bne     1$
+              jsr     .kbank swapForMobj
+              pha
+              jsl     long:mobjThinker0
+              pla
+              jsl     long:P_SwapTo
+              rtl
+1$:           jmp     long:mobjThinker0
+
+;;; void P_DamageMobj(target, inflictor, source, damage)
+;;; In: C = damage, _Dp[0-3] = target, _Dp[4-7] = inflictor, the source on
+;;; the stack (4,s and 6,s; the caller pops it). The target's player, if it
+;;; is one, takes the damage with his struct resident.
+              .public P_DamageMobj
+P_DamageMobj: sta     .near WR_T
+              jsr     .kbank swapForMobj
+              pha                           ; the player resident before
+              lda     8,s                   ; the source again, for the real one
+              pha
+              lda     8,s
+              pha
+              lda     .near WR_T
+              jsl     long:damageMobj0
+              pla
+              pla
+              pla
+              jsl     long:P_SwapTo
+              rtl
+
+;;; void P_TouchSpecialThing(special, toucher)   In: _Dp[0-3], _Dp[4-7].
+;;; The toucher's player, if it is one, picks up with his struct resident.
+              .public P_TouchSpecialThing
+P_TouchSpecialThing:
+              jsr     .kbank swapForMobj4
+              pha
+              jsl     long:touchSpecialThing0
+              pla
+              jsl     long:P_SwapTo
+              rtl
+
+;;; int16_t EV_Teleport(line, side, thing)  In: C = side, _Dp[0-3] = line,
+;;; _Dp[4-7] = thing. Out: C as the real one returns it.
+              .public EV_Teleport
+EV_Teleport:  pha                           ; the side
+              jsr     .kbank swapForMobj4
+              pha
+              lda     3,s
+              jsl     long:evTeleport0
+              sta     .near WR_T
+              pla
+              jsl     long:P_SwapTo
+              pla
+              lda     .near WR_T
+              rtl
+
+;;; P_SpawnPlayerN: In: C = the type of a map thing. Types 1 and 2 are the
+;;; starts of players 0 and 1: the player spawns (spawnPlayer of
+;;; p_spawn65.s, SP_MT set) with his struct resident, unless he is not in
+;;; the game. Out: carry set when the thing was a player start.
+              .public P_SpawnPlayerN
+P_SpawnPlayerN:
+              dec     a
+              cmp     ##2
+              bcs     8$
+              cmp     ##1
+              bne     1$
+              ldx     .near (_g_playeringame+2)
+              beq     9$
+1$:           ldx     .near _g_resident
+              phx
+              jsl     long:P_SwapTo
+              jsl     long:spawnPlayer
+              pla
+              jsl     long:P_SwapTo
+9$:           sec
+              rtl
+8$:           clc
               rtl

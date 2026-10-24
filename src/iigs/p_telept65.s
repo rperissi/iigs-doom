@@ -48,8 +48,8 @@ TP_T:         .space  4
 ;;; both ends, and stops there.
 ;;; ---------------------------------------------------------------------------
               .section coldcode, text
-              .public EV_Teleport
-EV_Teleport:  cmp     ##0                   ; the back side: no
+              .public evTeleport0  ; EV_Teleport wraps it (p_players65.s)
+evTeleport0:  cmp     ##0                   ; the back side: no
               bne     no
               lda     dp:.tiny _Dp
               sta     .near TP_LINE

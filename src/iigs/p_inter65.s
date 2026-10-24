@@ -97,8 +97,8 @@ powerTics:    .word   30 * CONST_TICRATE, 1, 60 * CONST_TICRATE, 60 * CONST_TICR
 ;;; goes away.
 ;;; ---------------------------------------------------------------------------
               .section coldcode, text
-              .public P_TouchSpecialThing
-P_TouchSpecialThing:
+              .public touchSpecialThing0 ; P_TouchSpecialThing wraps it (p_players65.s)
+touchSpecialThing0:
               lda     dp:.tiny _Dp
               sta     .near IN_SPECIAL
               lda     dp:.tiny (_Dp+2)
@@ -539,8 +539,8 @@ givePower:    pha
 ;;; The thrust away from the inflictor (not for the chainsaw), the armor and
 ;;; the god mode of the player, the death, the pain, and a new target.
 ;;; ---------------------------------------------------------------------------
-              .public P_DamageMobj
-P_DamageMobj: sta     .near DM_DAMAGE
+              .public damageMobj0  ; P_DamageMobj wraps it (p_players65.s)
+damageMobj0:  sta     .near DM_DAMAGE
               lda     dp:.tiny _Dp
               sta     .near DM_TARGET
               lda     dp:.tiny (_Dp+2)

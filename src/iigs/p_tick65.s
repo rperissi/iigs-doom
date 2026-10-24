@@ -24,6 +24,7 @@
 #endif
 
               .extern _Dp, _g_thinkerclasscap, states, mobjinfo, _g_player
+              .extern P_MobjThinker       ; the wrapper of mobjThinker0 (p_players65.s)
               .extern _g_respawnmonsters, _g_leveltime
               .extern P_XYMovement, P_ZMovement, P_NightmareRespawn
               .extern P_RemoveMobj, P_Random, A_CyberAttack
@@ -533,8 +534,8 @@ callFn:       .byte   0xdc                  ; jml [FN_P]
 ;;; ---------------------------------------------------------------------------
 ;;; void P_MobjThinker(mobj_t __far* mobj)      In: _Dp[0-3].
 ;;; ---------------------------------------------------------------------------
-              .public P_MobjThinker
-P_MobjThinker:
+              .public mobjThinker0 ; P_MobjThinker wraps it (p_players65.s)
+mobjThinker0:
               sep     #0x20                 ; MO_P = mobj (3 bytes)
               lda     dp:.tiny _Dp
               sta     dp:.tiny MO_P
