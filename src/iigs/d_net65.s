@@ -96,13 +96,13 @@ errTic:       .asciz  "D_Net: tic %i came, %i expected\n"
 errResident:  .asciz  "D_NetCmds: player %i resident\n"
 errCons:      .asciz  "consistency failure (%i should be %i) at tic %i\n"
 
-              .section netcode, text ; Code5d only (iigs.scm)
-
 ;;; ---------------------------------------------------------------------------
 ;;; void D_NetStart(void): the card reset, CONNECT to the relay, the player
 ;;; number and the go from it, both players ready to be born, the game.
+;;; (Run once: in ProgCode, bank 5 with netcode, so its jsrs reach.)
 ;;; ---------------------------------------------------------------------------
 #ifdef NETGAME
+              .section netstart, text
               .public D_NetStart
 D_NetStart:   sep     #0x20
               lda     #0x01                 ; soft reset: no sockets, empty FIFOs
@@ -141,7 +141,7 @@ D_NetStart:   sep     #0x20
               inx
               cpx     ##HOSTLEN
               bcc     2$
-              jsl     long:I_GetTime        ; the number and the go, within 30 s
+              jsl     long:I_GetTime        ; the number and the go, within 180 s
               sta     .near NT_T
 3$:           jsr     .kbank pollRx
               lda     .near netstate
@@ -150,7 +150,7 @@ D_NetStart:   sep     #0x20
               jsl     long:I_GetTime
               sec
               sbc     .near NT_T
-              cmp     ##(30 * CONST_TICRATE)
+              cmp     ##(180 * CONST_TICRATE)
               bcc     3$
               lda     ##.word0 errTimeout
               ldx     ##.word2 errTimeout
@@ -181,6 +181,8 @@ D_NetStart:   sep     #0x20
               jsl     long:G_DeferedInitNew
               rtl
 #endif
+
+              .section netcode, text ; Code5d only (iigs.scm)
 
 ;;; ---------------------------------------------------------------------------
 ;;; void D_NetUpdate(void): TryRunTics, after D_BuildNewTiccmds: the new

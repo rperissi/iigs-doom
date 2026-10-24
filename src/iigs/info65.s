@@ -133,18 +133,35 @@ states:       STATE   CONST_SPR_TROO, 0, -1, 0, CONST_S_NULL                    
               STATE   CONST_SPR_PLAY, 0, -1, 0, CONST_S_NULL                            ; S_PLAY
               STATE   CONST_SPR_PLAY, 0, 4, 0, CONST_S_PLAY_RUN2                        ; S_PLAY_RUN1
               STATE   CONST_SPR_PLAY, 1, 4, 0, CONST_S_PLAY_RUN3                        ; S_PLAY_RUN2
+#ifdef NETGAME
+              ;; The net game draws the other player with the frames A, B, E,
+              ;; H-K and N only (tools/levelset.py NET_PLAYER_FRAMES: the
+              ;; level sets of the big maps have no room for all of PLAY).
+              STATE   CONST_SPR_PLAY, 0, 4, 0, CONST_S_PLAY_RUN4                        ; S_PLAY_RUN3
+              STATE   CONST_SPR_PLAY, 1, 4, 0, CONST_S_PLAY_RUN1                        ; S_PLAY_RUN4
+              STATE   CONST_SPR_PLAY, 4, 12, 0, CONST_S_PLAY                            ; S_PLAY_ATK1
+              STATE   CONST_SPR_PLAY, FULLBRIGHT + 4, 6, 0, CONST_S_PLAY_ATK1           ; S_PLAY_ATK2
+              STATE   CONST_SPR_PLAY, 0, 4, 0, CONST_S_PLAY_PAIN2                       ; S_PLAY_PAIN
+              STATE   CONST_SPR_PLAY, 0, 4, A_Pain, CONST_S_PLAY                        ; S_PLAY_PAIN2
+#else
               STATE   CONST_SPR_PLAY, 2, 4, 0, CONST_S_PLAY_RUN4                        ; S_PLAY_RUN3
               STATE   CONST_SPR_PLAY, 3, 4, 0, CONST_S_PLAY_RUN1                        ; S_PLAY_RUN4
               STATE   CONST_SPR_PLAY, 4, 12, 0, CONST_S_PLAY                            ; S_PLAY_ATK1
               STATE   CONST_SPR_PLAY, FULLBRIGHT + 5, 6, 0, CONST_S_PLAY_ATK1           ; S_PLAY_ATK2
               STATE   CONST_SPR_PLAY, 6, 4, 0, CONST_S_PLAY_PAIN2                       ; S_PLAY_PAIN
               STATE   CONST_SPR_PLAY, 6, 4, A_Pain, CONST_S_PLAY                        ; S_PLAY_PAIN2
+#endif
               STATE   CONST_SPR_PLAY, 7, 10, 0, CONST_S_PLAY_DIE2                       ; S_PLAY_DIE1
               STATE   CONST_SPR_PLAY, 8, 10, A_PlayerScream, CONST_S_PLAY_DIE3          ; S_PLAY_DIE2
               STATE   CONST_SPR_PLAY, 9, 10, A_Fall, CONST_S_PLAY_DIE4                  ; S_PLAY_DIE3
               STATE   CONST_SPR_PLAY, 10, 10, 0, CONST_S_PLAY_DIE5                      ; S_PLAY_DIE4
+#ifdef NETGAME
+              STATE   CONST_SPR_PLAY, 10, 10, 0, CONST_S_PLAY_DIE6                      ; S_PLAY_DIE5 (no L, M: see S_PLAY_RUN3)
+              STATE   CONST_SPR_PLAY, 13, 10, 0, CONST_S_PLAY_DIE7                      ; S_PLAY_DIE6
+#else
               STATE   CONST_SPR_PLAY, 11, 10, 0, CONST_S_PLAY_DIE6                      ; S_PLAY_DIE5
               STATE   CONST_SPR_PLAY, 12, 10, 0, CONST_S_PLAY_DIE7                      ; S_PLAY_DIE6
+#endif
               STATE   CONST_SPR_PLAY, 13, -1, 0, CONST_S_NULL                           ; S_PLAY_DIE7
               STATE   CONST_SPR_PLAY, 14, 5, 0, CONST_S_PLAY_XDIE2                      ; S_PLAY_XDIE1
               STATE   CONST_SPR_PLAY, 15, 5, A_XScream, CONST_S_PLAY_XDIE3              ; S_PLAY_XDIE2

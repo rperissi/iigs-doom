@@ -770,7 +770,7 @@ def build(lumps, sets_of, walls_of, srcdir, cache=None, raw=False, groups=None, 
             for i in songs_for(k):
                 stage = (0x2a + nbanks) * BANK if k < nmapsets else 0x3e0000
                 if k < nmapsets and stage + len(songs[i][1]) > 0x3e0000:
-                    raise ValueError(f'map {k+1}: song staging exceeds $3E0000')
+                    raise ValueError(f'map {k+1}: song staging exceeds $3E0000 by {stage + len(songs[i][1]) - 0x3e0000} bytes')
                 ents.append((0xffe0 + i, stage, 0, 0))
                 for ci, (pos, enc, israw) in enumerate(songs[i][2]):
                     if i == cached:

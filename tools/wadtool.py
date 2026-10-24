@@ -786,16 +786,18 @@ def main():
     for name, data in maps.grids.items():
         wad.add(name, data)
     if args.store:
-        save_store(wad, os.path.join(args.outdir, args.name), args.store, args.src, args.music_bank)
+        save_store(wad, os.path.join(args.outdir, args.name), args.store, args.src, args.music_bank,
+                   netgame=args.netthings)
     else:
         wad.save(os.path.join(args.outdir, args.name))
 
 
-def save_store(wad, path, store_path, srcdir, music=None):
+def save_store(wad, path, store_path, srcdir, music=None, netgame=False):
     """The resident WAD (path), the store (store_path) and the title
-    picture for the loader (path + '.PIC'): tools/levelimg.py."""
+    picture for the loader (path + '.PIC'): tools/levelimg.py. A net game
+    keeps the player sprite in the level sets (the other player shows)."""
     lumps = [(nm, bytes(d)) for nm, d in wad.lumps]
-    ls = levelset.LevelSets(levelset.GameWad(lumps=lumps), srcdir)
+    ls = levelset.LevelSets(levelset.GameWad(lumps=lumps), srcdir, netgame=netgame)
     names = [nm for nm, _ in lumps]
     sets, walls = [], []
     for m in levelset.MAPS:

@@ -31,6 +31,10 @@
 --   PROBE_GAMETIC  ADDR (hex) of _g_gametic, for PROBE_TICSHR
 --   PROBE_TICEXIT  set: exit after the last back buffer of PROBE_TICSHR
 --                  (with the PROBE_DUMP memory)
+--   PROBE_TEXTEXIT set: print the rows of the 40 column text page when the
+--                  run ends (an I_Error message)
+--   PROBE_POKE     comma separated SECONDS:ADDR:VALUE (hex ADDR, VALUE): the
+--                  byte VALUE at ADDR at SECONDS (emulated)
 --   PROBE_TICPOKE  comma separated TIC:ADDR:VALUE (hex ADDR, VALUE): the
 --                  word VALUE at ADDR as game tic TIC ends (PROBE_GAMETIC)
 --   PROBE_TICPRESS comma separated TIC:KEY:TICS: the key (as PROBE_PRESS)
@@ -115,6 +119,10 @@ local ticTap = nil
 for t in string.gmatch(os.getenv("PROBE_TICSHR") or "", "[^,]+") do
 	table.insert(ticShr, tonumber(t))
 end
+local timePokes = {}
+for t, a, v in string.gmatch(os.getenv("PROBE_POKE") or "", "([%d.]+):(%x+):(%x+)") do
+	table.insert(timePokes, { tonumber(t), tonumber(a, 16), tonumber(v, 16) })
+end
 local ticPokes, ticPresses, ticReleases = {}, {}, {}
 for t, a, v in string.gmatch(os.getenv("PROBE_TICPOKE") or "", "(%d+):(%x+):(%x+)") do
 	table.insert(ticPokes, { tonumber(t), tonumber(a, 16), tonumber(v, 16) })
@@ -188,6 +196,23 @@ local function floppy()
 		end
 	end
 	return nil
+end
+
+-- PROBE_TEXTEXIT: the 40 column text page (main memory, as I_Error leaves
+-- it) when the run ends, the rows with text.
+local textExit = os.getenv("PROBE_TEXTEXIT") ~= nil
+local function textPage(space)
+	for row = 0, 23 do
+		local base = 0xe00400 + (row & 7) * 0x80 + (row >> 3) * 0x28
+		local text = ""
+		for i = 0, 39 do
+			local c = space:read_u8(base + i) & 0x7f
+			if c < 32 then c = 32 end
+			text = text .. string.char(c)
+		end
+		text = string.gsub(text, "%s+$", "")
+		if text ~= "" then print(string.format("[text] %2d: %s", row, text)) end
+	end
 end
 
 -- Row 18, column 4 of the 40 column text page holds the loader prompt.
@@ -401,6 +426,14 @@ emu.register_frame_done(function()
 		print(string.format("[probe] %.1fs game started, normal speed", now))
 	end
 
+	for i = #timePokes, 1, -1 do
+		if now >= timePokes[i][1] then
+			space:write_u8(timePokes[i][2], timePokes[i][3])
+			print(string.format("[probe] %.1fs %06X = %02X", now, timePokes[i][2], timePokes[i][3]))
+			table.remove(timePokes, i)
+		end
+	end
+
 	if #dumpTimes > 0 and now >= dumpTimes[1] then
 		print(string.format("[probe] %.1fs PC=%X", now, cpu.state["PC"].value))
 		for spec in string.gmatch(dumps, "[^,]+") do
@@ -440,7 +473,15 @@ emu.register_frame_done(function()
 		ticTap = space:install_write_tap(gameticAddr, gameticAddr, "tic",
 			function(offset, data, mask)
 				if offset ~= gameticAddr then return end
+				-- (the loader and the zeroing of the data write here too:
+				-- only the increment counts)
+				local pb = cpu.state["PB"].value
+				if pb < 0x02 or pb >= 0xe0 then return end
 				local old = space:read_u32(gameticAddr)
+				if (data & 0xff) ~= ((old + 1) & 0xff) then return end
+				-- (a 16 bit inc writes the high byte first: as the low
+				-- byte wraps, the high one read is the new one)
+				if (data & 0xff) == 0 then old = old - 0x100 end
 				-- PROBE_TICPOKE: a word written as tic N ends
 				for i = #ticPokes, 1, -1 do
 					if old >= ticPokes[i][1] then
@@ -501,6 +542,7 @@ emu.register_frame_done(function()
 						local da, dl = string.match(spec, "(%x+):(%x+)")
 						if da then hexdump(space, tonumber(da, 16), tonumber(dl, 16)) end
 					end
+					if textExit then textPage(space) end
 					done = true
 					manager.machine:exit()
 				end
@@ -538,6 +580,7 @@ emu.register_frame_done(function()
 		local a, l = string.match(spec, "(%x+):(%x+)")
 		if a then hexdump(space, tonumber(a, 16), tonumber(l, 16)) end
 	end
+	if textExit then textPage(space) end
 	manager.machine.video:snapshot()
 	manager.machine:exit()
 end)

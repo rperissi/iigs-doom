@@ -41,6 +41,12 @@ SKY = 'SKY1'
 # frames.
 NOT_DRAWN = ('PLAY',)
 PLAYER = 'MT_PLAYER'
+# A net game draws the other player: the frames A, B (the walk, two frames
+# in the net build of src/iigs/info65.s, and the pain), E (firing), H-K and
+# N (the death); not C, D, F, G, L, M or the gib death O-W: the level sets
+# of the big maps have no room for all of PLAY (E1M3 is 8 KB short with G,
+# 1 KB short with L and M).
+NET_PLAYER_FRAMES = (0, 1, 4, 7, 8, 9, 10, 13)
 
 
 def name8(b):
@@ -160,8 +166,9 @@ def switch_pairs(srcdir):
 
 
 class LevelSets:
-    def __init__(self, wad, srcdir):
+    def __init__(self, wad, srcdir, netgame=False):
         self.wad = wad
+        self.netgame = netgame          # the other player shows: PLAY is drawn
         self.info = Info(srcdir)
         self.tex = Textures(wad)
         self.switch = switch_pairs(srcdir)
@@ -229,6 +236,8 @@ class LevelSets:
             fams |= self.info.sprites_of(mt)
             if mt != PLAYER:
                 frames |= set(fr for fr in self.info.frames_of(mt) if fr[0] in NOT_DRAWN)
+        if self.netgame:                # the other player: walking, firing,
+            frames |= {('PLAY', f) for f in NET_PLAYER_FRAMES}  # pain, death
         fams -= set(NOT_DRAWN)
         out = set()
         for f in fams:

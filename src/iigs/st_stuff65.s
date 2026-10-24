@@ -18,6 +18,9 @@
               .extern IIGS_MulLo16, _Div16, _UDivMod16
               .extern I_GetTime, TINTPAL, _g_gamemap, _g_gamma
               .extern tintPeak, tintLeft, tintShow, tintUntil
+#ifdef NETGAME
+              .extern _g_resident, _g_consoleplayer
+#endif
               .extern tintMark, tintMarkG, tintSave, tintOut, tintC0, tintC8
 
 PL            .equ    _g_player
@@ -1231,6 +1234,13 @@ TINT8_OFF     .equ    (8 * 384)
               .section tintcode, text
               .public notePeak, tintDecide
 notePeak:     sta     .near (PL+OFS_PL_DAMAGECOUNT)
+#ifdef NETGAME
+              tax                           ; the other player's hits don't tint
+              lda     .near _g_resident
+              cmp     .near _g_consoleplayer
+              bne     1$
+              txa
+#endif
               cmp     .near tintPeak
               bcc     1$
               sta     .near tintPeak

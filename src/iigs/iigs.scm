@@ -225,7 +225,7 @@
     ;; own run ends at onecold ($05EC00), so this sits in the free tail of
     ;; the same bank: the decoder's jsr still reaches it.
     (memory ProgCode (address (#x05753e . #x0588ff))
-            (section progcode))
+            (section progcode netstart))
     (memory Code5g (address (#x058900 . #x05927f))
             (section coldcode))
     ;; Sprite and masked-wall stride for the 1/4 and 1/3 views. Cold: once
