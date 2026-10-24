@@ -24,6 +24,9 @@
               .extern V_DrawPatchNotScaled, V_NumPatchWidth, S_StartSound
               .extern G_DeferedInitNew, G_LoadGame, G_SaveGame, G_CheckDemoStatus
               .extern _g_usergame, _g_demoplayback, _g_gamestate
+#ifdef NETGAME
+              .extern _g_netgame
+#endif
               .extern G_UpdateSaveGameStrings, D_StartTitle, I_Quit, G_SaveSettings
               .extern strGameSaved, G_SaveUndo
               .extern I_ReloadPalette, I_SetPalette, skx, sky, skw, skh
@@ -70,6 +73,7 @@ MSG_ENDGAME   .equ    8
 MSG_SAVEDEAD  .equ    12              ;   (no Y or N: any key, also for the
 MSG_BENCH     .equ    16              ;   benchmark result of bmDone,
 MSG_SAVEFAIL  .equ    20              ;   and a failed disk write)
+MSG_NETGAME   .equ    24              ;   not in a net game (NETGAME)
 L_DOOM        .equ    0               ; the patch lumps in LUMPS (x 2)
 L_NGAME       .equ    2
 L_OPTION      .equ    4
@@ -981,9 +985,22 @@ bindAction:   sta     .near bindRow         ; the next key is for this action
               rts
 defaultKeys:  jsl     long:I_DefaultKeys
               rts
-loadGame:     lda     ##MENU_LOAD
+loadGame:
+#ifdef NETGAME
+              lda     .near _g_netgame      ; no load, save or end of a net
+              beq     loadMenu              ;   game: the other machine runs on
+notNet:       lda     ##MSG_NETGAME
+              bra     startMessage
+loadMenu:
+#endif
+              lda     ##MENU_LOAD
               bra     setupMenu
-saveGame:     lda     .near _g_usergame     ; M_SaveGame: a game of the
+saveGame:
+#ifdef NETGAME
+              lda     .near _g_netgame
+              bne     notNet
+#endif
+              lda     .near _g_usergame     ; M_SaveGame: a game of the
               ora     .near _g_demoplayback ;   player, or a demo
               bne     1$
               lda     ##MSG_SAVEDEAD
@@ -995,7 +1012,12 @@ saveGame:     lda     .near _g_usergame     ; M_SaveGame: a game of the
 2$:           rts
 quitDoom:     lda     ##MSG_QUIT
               bra     startMessage
-endGame:      lda     ##MSG_ENDGAME
+endGame:
+#ifdef NETGAME
+              lda     .near _g_netgame
+              bne     notNet
+#endif
+              lda     ##MSG_ENDGAME
               bra     startMessage
 chooseSkill:  cmp     ##NIGHTMARE           ; nightmare: are you sure
               bne     1$
@@ -1595,8 +1617,10 @@ M_SaveFailed: lda     ##MSG_SAVEFAIL
               jsr     .kbank startMessage
               rtl
 
+#ifndef NETGAME
               .space  (0x93d - (. - menuColdStart))
                                       ; Keep other coldcode at its slots.
+#endif                                ; (the net game's menu checks outgrow it)
               .section detailimg, text
 menuDetailPad: .byte   0               ; Retain the reserved detailimg bytes.
               .space  78
@@ -1656,6 +1680,11 @@ AS_CORE       .equ    0xe2000c        ; Core version, valid after the presence c
 
 msgTexts:     .long   msgNightmare, msgQuit, msgEndGame, msgSaveDead
               .long   VW_BTXT, msgSaveFail
+#ifdef NETGAME
+              .long   msgNetGame
+msgNetGame:   .ascii  "You can't do that in a net game!\n\n"
+              .asciz  "Press a key."
+#endif
 txBench:      .asciz  "BENCHMARK"
 txSaveSet:    .asciz  "SAVE SETTINGS"
 txDemo3:      .asciz  "demo3"
