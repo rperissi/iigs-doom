@@ -608,7 +608,13 @@ P_PlayerDied: lda     ##CONST_PST_DEAD
               jsl     long:P_PlayerOfMobj
               jsr     .kbank playerIndex
               bcc     8$
-              inc     .near _g_frags,x
+              txa                           ; himself: one less, as Doom
+              lsr     a                     ;   counts them
+              cmp     .near _g_resident
+              bne     7$
+              dec     .near _g_frags,x
+              bra     8$
+7$:           inc     .near _g_frags,x
 8$:           pla
               sta     dp:.tiny _Dp
               pla

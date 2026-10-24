@@ -19,7 +19,7 @@
               .extern I_GetTime, TINTPAL, _g_gamemap, _g_gamma
               .extern tintPeak, tintLeft, tintShow, tintUntil
 #ifdef NETGAME
-              .extern _g_resident, _g_consoleplayer
+              .extern _g_resident, _g_consoleplayer, _g_deathmatch, _g_frags
 #endif
               .extern tintMark, tintMarkG, tintSave, tintOut, tintC0, tintC8
 
@@ -77,6 +77,9 @@ W_ARMOR:      .space  NW_SIZE
 W_AMMO:       .space  (4 * NW_SIZE)
 W_MAXAMMO:    .space  (4 * NW_SIZE)
 W_ARMS:       .space  (6 * IW_SIZE)
+#ifdef NETGAME
+W_FRAGS:      .space  NW_SIZE         ; the frags, for the arms in a deathmatch
+#endif
 W_FACES:      .space  IW_SIZE
 W_KEYBOXES:   .space  (3 * IW_SIZE)
 oldweaponsowned: .space (2 * CONST_NUMWEAPONS)
@@ -388,6 +391,16 @@ ST_Start:     stz     .near st_refreshed    ; st_needrefresh = true
               sta     .near (W_FACES+IW_INUM)
               lda     ##.near faces
               sta     .near (W_FACES+IW_P)
+#ifdef NETGAME
+              ldx     ##.near W_FRAGS       ; the frags: ST_FRAGSX, 2 digits
+              lda     ##138
+              ldy     ##(ST_Y+3)
+              jsr     .kbank tallNum
+              lda     ##2
+              sta     .near (W_FRAGS+NW_WIDTH)
+              lda     ##.near _g_frags
+              sta     .near (W_FRAGS+NW_NUM)
+#endif
               lda     ##1                   ; st_stopped = false
               sta     .near st_running
               rtl
@@ -763,13 +776,17 @@ refresh:      stz     dp:.tiny _Dp          ; Status background starts at ST_Y.
               sta     dp:.tiny _Dp
               lda     .near statusbarnum
               jsl     long:V_DrawRaw
+#ifdef NETGAME
+              lda     .near _g_deathmatch   ; (a deathmatch shows the FRAGS
+              bne     8$                    ;   label of the bar instead)
+#endif
               lda     ##ST_Y                ; the arms background at 104
               sta     dp:.tiny _Dp
               lda     .near starmsnum
               sta     dp:.tiny (_Dp+4)
               lda     ##104
               jsl     long:V_DrawNumPatchNotScaled
-              jsl     long:I_SaveStatusBackground
+8$:           jsl     long:I_SaveStatusBackground
               ldx     ##.near W_READY       ; ST_drawWidgets
               jsr     .kbank drawNum
               ldx     ##0
@@ -808,6 +825,13 @@ refresh:      stz     dp:.tiny _Dp          ; Status background starts at ST_Y.
               tax
               cpx     ##.near (W_KEYBOXES+3*IW_SIZE)
               bcc     2$
+#ifdef NETGAME
+              lda     .near _g_deathmatch   ; the frags for the arms
+              beq     9$
+              jsr     .kbank fragsNum
+              jmp     .kbank drawNum
+9$:
+#endif
               ldx     ##.near W_ARMS
 3$:           phx
               jsr     .kbank updateIcon
@@ -868,6 +892,14 @@ diffDraw:     stz     .near ST_DRAWN
               tax
               cpx     ##.near (W_KEYBOXES+3*IW_SIZE)
               bcc     4$
+#ifdef NETGAME
+              lda     .near _g_deathmatch   ; the frags for the arms
+              beq     7$
+              jsr     .kbank fragsNum
+              jsr     .kbank diffNum
+              bra     6$
+7$:
+#endif
               ldx     ##.near W_ARMS
 5$:           jsr     .kbank diffIcon
               txa
@@ -876,10 +908,21 @@ diffDraw:     stz     .near ST_DRAWN
               tax
               cpx     ##.near (W_ARMS+6*IW_SIZE)
               bcc     5$
-              lda     .near ST_DRAWN
+6$:           lda     .near ST_DRAWN
               cmp     ##1                   ; carry: drawn
               rts
               .space  6                     ; Keep restoreRect at its slots.
+
+#ifdef NETGAME
+;;; fragsNum: X = the frags widget, its number the console player's frags.
+fragsNum:     lda     .near _g_consoleplayer
+              asl     a
+              clc
+              adc     ##.near _g_frags
+              sta     .near (W_FRAGS+NW_NUM)
+              ldx     ##.near W_FRAGS
+              rts
+#endif
 
 ;;; diffNum: ST_diffNum(the number widget at near X): a changed number is
 ;;; drawn again over its restored background. Carry set if drawn (also in
