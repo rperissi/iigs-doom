@@ -428,6 +428,25 @@ playerMo:     cmp     .near _g_resident
               plx
               rts
 
+;;; P_PlayerMoHealth: X:C = the mobj of player C, Y = his health (the
+;;; monsters' look, src/iigs/p_enemy65.s).
+              .public P_PlayerMoHealth
+P_PlayerMoHealth:
+              cmp     .near _g_resident
+              bne     1$
+              ldy     .near (_g_player+OFS_PL_HEALTH)
+              lda     .near (_g_player+OFS_PL_MO)
+              ldx     .near (_g_player+OFS_PL_MO+2)
+              rtl
+1$:           jsr     .kbank saveSlot
+              lda     long:(_g_psave+OFS_PL_HEALTH),x
+              tay
+              lda     long:(_g_psave+OFS_PL_MO+2),x
+              pha
+              lda     long:(_g_psave+OFS_PL_MO),x
+              plx
+              rtl
+
 ;;; playerState: C = the playerstate of player C.
 playerState:  cmp     .near _g_resident
               bne     1$

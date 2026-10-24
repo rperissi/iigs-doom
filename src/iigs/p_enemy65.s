@@ -12,6 +12,9 @@
 #include "tics.inc"
 
               .extern _Dp, mobjinfo, _g_player, _g_gameskill, _g_gamemap
+#ifdef NETGAME
+              .extern P_PlayerMoHealth, _g_playeringame
+#endif
               .extern _g_numspechit, _g_spechit, _g_tmbbox, _g_bmaporgx, _g_bmaporgy
               .extern _g_thinkerclasscap, validcount, _g_sides
               .extern P_TryMove, P_UseSpecialLine, P_Random, P_CheckSight
@@ -66,6 +69,12 @@ EN_DDY:       .space  4
 EN_B:         .space  8               ; the block range
 EN_BX:        .space  2
 EN_BY:        .space  2
+#ifdef NETGAME
+LF_MO:        .space  4               ; lookForPlayers: the player looked at
+LF_HEALTH:    .space  2
+LF_N:         .space  2
+LF_ALL:       .space  2
+#endif
 EN_LINE:      .space  4               ; PIT_AvoidDropoff: the line
 
 AC_SLOPE:     .space  4
@@ -381,19 +390,52 @@ stepsSet:     sta     .near PM_STEPS
 
 ;;; ---------------------------------------------------------------------------
 ;;; lookForPlayers: P_LookForPlayers(AP, allaround C), with P_IsVisible.
+;;; The net game looks at each player in the game, player 0 first (the
+;;; same on both machines; Doom's lastlook round robin is not kept), from
+;;; his struct or his save slot (P_PlayerMoHealth); the one-player game at
+;;; the resident struct.
 ;;; ---------------------------------------------------------------------------
+#ifdef NETGAME
+LF_PMO        .equ    LF_MO
+LF_PHEALTH    .equ    LF_HEALTH
 lookForPlayers:
+              sta     .near LF_ALL
+              stz     .near LF_N
+1$:           lda     .near LF_N
+              jsl     long:P_PlayerMoHealth
+              sta     .near LF_MO
+              stx     .near (LF_MO+2)
+              sty     .near LF_HEALTH
+              ora     .near (LF_MO+2)
+              beq     2$                    ; (no mobj yet)
+              lda     .near LF_ALL
+              jsr     .kbank lookForOne
+              bne     9$
+2$:           inc     .near LF_N
+              lda     .near LF_N
+              cmp     ##2
+              bcs     8$
+              lda     .near (_g_playeringame+2)
+              bne     1$
+8$:           lda     ##0
+9$:           rts
+lookForOne:
+#else
+LF_PMO        .equ    (_g_player+OFS_PL_MO)
+LF_PHEALTH    .equ    (_g_player+OFS_PL_HEALTH)
+lookForPlayers:
+#endif
               pha
-              lda     .near (_g_player+OFS_PL_HEALTH) ; dead
+              lda     .near LF_PHEALTH      ; dead
               beq     0$
               bpl     1$
 0$:           brl     90$
 1$:           pla
               bne     10$                   ; allaround: only the sight check
               ;; an = R_PointToAngle2(actor, player->mo) - actor->angle
-              lda     .near (_g_player+OFS_PL_MO)
+              lda     .near LF_PMO
               sta     dp:.tiny AT
-              lda     .near (_g_player+OFS_PL_MO+2)
+              lda     .near (LF_PMO+2)
               sta     dp:.tiny (AT+2)
               jsl     long:behindFast       ; the answer without the angle,
               bcc     3$                    ;   if it can tell
@@ -428,19 +470,19 @@ lookForPlayers:
 5$:           bmi     10$
               lda     ##0
               rts
-10$:          lda     .near (_g_player+OFS_PL_MO)
+10$:          lda     .near LF_PMO
               sta     dp:.tiny (_Dp+4)
-              lda     .near (_g_player+OFS_PL_MO+2)
+              lda     .near (LF_PMO+2)
               sta     dp:.tiny (_Dp+6)
               ARGAP
               jsl     long:P_CheckSight
               and     ##0x00ff
               bne     20$
               rts
-20$:          lda     .near (_g_player+OFS_PL_MO) ; actor->target = player->mo
+20$:          lda     .near LF_PMO          ; actor->target = player->mo
               ldy     ##OFS_MO_TARGET
               sta     [.tiny AP],y
-              lda     .near (_g_player+OFS_PL_MO+2)
+              lda     .near (LF_PMO+2)
               iny
               iny
               sta     [.tiny AP],y
