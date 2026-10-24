@@ -15,9 +15,9 @@
 #
 # Env: MAME (the binary), ZIP (cfg/zipN, default 7), TICS, RUN (the
 # emulated bound, default 600), KEYS_A, KEYS_B, PORT, COOP_STARTS (below),
-# TICPOKE (PROBE_TICPOKE TIC:ADDR:VALUE words, on both seats: the same
-# state on both, e.g. a level end: TICPOKE=300:$(tools/symaddr.py
-# build/doom.elf _g_gameaction):6).
+# TICPOKE (PROBE_TICPOKE TIC:ADDR:VALUE words; of no use in this MAME,
+# the CPU does not see Lua's RAM writes to banks 02 and 04, so a level
+# end comes from make NETGAME=1 BENCHEXIT=300 instead).
 # Seat A is player 0 (it connects first).
 cd "$(dirname "$0")/.." || exit 1
 MAME=${MAME:-../webifi-mame/cogs}
