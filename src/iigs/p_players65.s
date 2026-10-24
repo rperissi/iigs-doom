@@ -50,8 +50,9 @@ _g_resident:  .space  2               ; the player whose struct is _g_player
 _g_consoleplayer: .space 2            ; the player at this machine
 _g_playeringame: .space 4             ; player 0 is always in; a word for player 1
 _g_deathmatch: .space 2
-              .public _g_netgame, _g_frags
+              .public _g_netgame, _g_frags, _g_nomonsters
 _g_netgame:   .space  2
+_g_nomonsters: .space 2               ; no monsters in the net game (-nomonsters)
 _g_frags:     .space  4               ; the frags of each player
               .public _g_listenerMo
 _g_listenerMo: .space 4              ; the console player's mobj, whoever is resident

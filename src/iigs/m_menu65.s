@@ -523,7 +523,11 @@ msgSaveFail:  .ascii  "Not saved: the disk is write\n"
 
               .space  (0x82e - (. - menuDataStart))
                                       ; Keep other cfar at its cache slots.
+#ifdef NETGAME
+              .section menucold, text ; bank 4 (iigs.scm): the menu's cold
+#else                                 ;   code outgrows its stock slot
               .section coldcode, text
+#endif
 menuColdStart:
 itemRoutine:
               .word   .word0 newGame

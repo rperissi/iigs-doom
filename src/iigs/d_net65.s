@@ -58,7 +58,7 @@ NS_GO         .equ    3               ;   both machines are in
 
               .extern _Dp, _g_player, _g_gametic, maketic, cmds
               .extern _g_resident, _g_consoleplayer, _g_playeringame
-              .extern _g_deathmatch, _g_netgame, P_SwapTo, G_DeferedInitNew
+              .extern _g_deathmatch, _g_netgame, _g_nomonsters, P_SwapTo, G_DeferedInitNew
               .extern I_Error, I_GetTime, prndindex, _g_psave, G_ExitLevel
 
               .section znear, bss
@@ -158,6 +158,9 @@ D_NetStart:   sep     #0x20
 4$:           lda     ##1                   ; a two-player deathmatch
               sta     .near _g_netgame
               sta     .near _g_deathmatch
+#ifdef NOMONSTERS
+              sta     .near _g_nomonsters
+#endif
               sta     .near (_g_playeringame+2)
               sep     #0x20                 ; both players: a fresh struct,
               ldx     ##(SIZEOF_PL - 1)     ;   to be born (player 0 is

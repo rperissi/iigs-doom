@@ -17,6 +17,9 @@
               .extern _g_gameskill, _g_totallive, _g_totalkills, _g_totalitems
               .extern _g_demoplayback, _g_player, _g_linetarget
               .extern P_SpawnPlayerN
+#ifdef NETGAME
+              .extern _g_nomonsters
+#endif
               .extern P_Random, P_SetThingPosition, P_UnsetThingPosition
               .extern P_AddThinker, P_MobjThinker, P_MobjBrainlessThinker
               .extern addIfFunc, linkRemove
@@ -966,7 +969,17 @@ P_SpawnMapThing:
               lda     ##.word2 fdnErr
               sta     dp:.tiny (_Dp+2)
               jsl     long:I_Error
-7$:           tya                           ; i = NUMMOBJTYPES - Y
+7$:
+#ifdef NETGAME
+              lda     .near _g_nomonsters   ; -nomonsters: no monster
+              beq     71$
+              lda     abs:.near (mobjinfo+OFS_MI_FLAGS+2),x
+              and     ##CONST_MF_COUNTKILL_HI
+              beq     71$
+              rtl
+71$:
+#endif
+              tya                           ; i = NUMMOBJTYPES - Y
               eor     ##0xffff
               sec
               adc     ##CONST_NUMMOBJTYPES

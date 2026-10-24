@@ -147,8 +147,10 @@
             (section farcode farswitch cfar far))
     (memory Code4a (address (#x040000 . #x0408ff))
             (section farcode cfar far))
+    ;; menucold: the menu's cold code of the NETGAME build (m_menu65.s),
+    ;; in bank 4 with its j13cold dispatch table. Empty in the stock build.
     (memory Code4b (address (#x040900 . #x041fff))
-            (section coldcode))
+            (section menucold coldcode))
     (memory Code4c (address (#x042000 . #x043dff))
             (section logiccode))
     (memory Code4c2 (address (#x043e00 . #x043fff))
