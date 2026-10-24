@@ -87,6 +87,10 @@ nosfxparm:    .space  2
 _g_fps_show:  .space  2
 _g_fps_framerate: .space 2
               .public maketic
+              .extern D_NetUpdate, netmaketic
+#ifdef NETGAME
+              .extern D_NetStart
+#endif
 maketic:      .space  4               ; the tic commands made
 lastmadetic:  .space  4
 pagetic:      .space  2               ; the tics of the title page
@@ -209,7 +213,11 @@ D_DoomMain:   lda     dp:.tiny _Dp
               lda     ##1
               sta     .near _g_singledemo
               brl     doomLoop
+#ifdef NETGAME
+1$:           jsl     long:D_NetStart       ; else the net game (d_net65.s)
+#else
 1$:           jsl     long:D_StartTitle     ; else the title and demo loop
+#endif
               brl     doomLoop
 
 ;;; print: printf(the string at X (its low word) in bank C).
@@ -278,10 +286,11 @@ tryRunTics:   jsl     long:I_GetTime
               sta     .near TR_ENTER
               stx     .near (TR_ENTER+2)
 1$:           jsr     .kbank buildNewTiccmds
+              jsl     long:D_NetUpdate      ; the net game (d_net65.s)
               lda     .near _g_menuactive
               beq     12$
               bra     15$                 ; Every menu pauses its screen.
-              .space  11
+              .space  7
 15$:          lda     .near maketic         ; the new tics: M_Ticker
               sec
               sbc     .near _g_gametic
@@ -295,9 +304,9 @@ tryRunTics:   jsl     long:I_GetTime
               lda     .near (_g_gametic+2)
               sta     .near (maketic+2)
 14$:          rts
-12$:          lda     .near maketic         ; runtics = maketic - gametic
-              sec
-              sbc     .near _g_gametic
+12$:          lda     .near netmaketic      ; runtics = maketic - gametic
+              sec                           ;   (netmaketic: the tics both
+              sbc     .near _g_gametic      ;   players have, = maketic alone)
               sta     .near TR_RUN          ; runtics > 0: run them
               beq     11$
               bpl     3$

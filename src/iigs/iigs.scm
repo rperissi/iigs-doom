@@ -205,7 +205,7 @@
     (memory Code5c (address (#x051a1b . #x051fff))
             (section coldcode))
     (memory Code5d (address (#x052000 . #x0523ff))
-            (section logiccode))
+            (section netcode logiccode))
     ;; The automap (src/iigs/am_map65.s): the overlay runs it before the
     ;; replay, so it stays out of the replay's slots $0900-$1FFF.
     (memory AmCode (address (#x052400 . #x053dff))

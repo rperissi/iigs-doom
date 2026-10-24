@@ -201,7 +201,7 @@ P_Ticker:     lda     .near _g_menuactive   ; paused in the menu, after a tic
               cmp     ##CONST_GS_LEVEL
               bne     2$
               jsl     long:P_PlayersThink   ; (p_players65.s) each player, his struct resident
-              .space  12                    ; the size of the one-player call it replaced
+              .space  12,0xea                  ; the size of the one-player call it replaced
 #if TICSTEP > 1
               jsr     .kbank playerMobj     ; the tic of his mobj
 2$:

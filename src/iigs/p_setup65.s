@@ -13,7 +13,7 @@
 #include "memmap.inc"
 
               .extern _Dp, IIGS_MulLo16, _UDivMod16, I_Error, MA
-              .extern P_ClearPlayerMo
+              .extern P_ClearPlayerMo, P_SpawnSpecialsDM
               .extern W_GetNumForName, W_GetLumpByNum, W_LumpLength
               .extern Z_CallocLevel, Z_MallocLevel, Z_FreeTags, poolInit
 PAD_LT        .equ    0
@@ -155,9 +155,10 @@ P_SetupLevel: pha
               jsl     long:rlSave
               jsl     long:rlSightTables    ; (the sector of each subsector)
               jsl     long:P_ClearPlayerMo  ; no player has a mobj yet (p_players65.s)
-              .space  2
+              .space  2,0xea
               jsr     .kbank loadThings2
-              jsl     long:P_SpawnSpecials
+              jsl     long:P_SpawnSpecialsDM ; (p_players65.s: the deathmatch
+                                            ;   spawns, then P_SpawnSpecials)
               jmp     long:P_MapEnd
 
 ;;; ---------------------------------------------------------------------------

@@ -184,11 +184,12 @@ def s8(v):
 
 
 class MapProcessor:
-    def __init__(self, wad, flat_span, flat_lists):
+    def __init__(self, wad, flat_span, flat_lists, netthings=False):
         self.wad = wad
         self.flat_span = flat_span
         self.flat_lists = flat_lists
         self.grids = {}
+        self.netthings = netthings
 
     def lump(self, base, off):
         return self.wad.lumps[base + off][1]
@@ -215,7 +216,14 @@ class MapProcessor:
         out = bytearray()
         for i in range(len(d) // 10):
             x, y, angle, typ, options = struct.unpack_from('<hhhhh', d, i * 10)
-            if typ in (2, 3, 4, 11) or options & MTF_NOTSINGLE:
+            # The one-player game drops the other starts and the things of
+            # a net game. --netthings keeps the start of player 2, the
+            # deathmatch starts (11) and the net things (the game skips
+            # them when it is not a net game).
+            if self.netthings:
+                if typ in (3, 4):
+                    continue
+            elif typ in (2, 3, 4, 11) or options & MTF_NOTSINGLE:
                 continue
             out += struct.pack('<hhhbb', x, y, typ, s8(angle // 45), s8(options))
         self.put(base, ML_THINGS, out)
@@ -718,6 +726,8 @@ def main():
     ap.add_argument('--layout', type=int, choices=(240, 320), default=320,
                     help='screen layout: 240x160 of Doom8088 or 320x200 of Doom')
     ap.add_argument('--demo2', help='hex-encoded replacement for the stock DEMO2 inputs')
+    ap.add_argument('--netthings', action='store_true',
+                    help='keep the start of player 2, the deathmatch starts and the net things')
     ap.add_argument('--keep-demos', action='store_true',
                     help='keep DEMO1 and DEMO2 (for the timedemo tests)')
     ap.add_argument('--name', default='DOOMGS.WAD', help='the output file in OUTDIR')
@@ -750,7 +760,7 @@ def main():
 
     process_texture1(wad)
     process_pnames(wad)
-    maps = MapProcessor(wad, args.flat_span, flat_lists)
+    maps = MapProcessor(wad, args.flat_span, flat_lists, args.netthings)
     maps.process()
 
     wad.add('M_ARUN', text_patch(wad, 'ALWAYS RUN'))

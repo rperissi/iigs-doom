@@ -64,6 +64,7 @@ SP_T:         .space  4
 SP_DAMAGE:    .space  2
 TP_HW:        .space  2               ; 2 * the highest word of TP_BITS that
                                       ;   can have a free mobj, < 0 none
+              .public SP_MT           ; (p_players65.s: a deathmatch start)
 SP_MT:        .space  4               ; P_SpawnMapThing: the map thing
 NR_MO:        .space  4               ; P_NightmareRespawn: the dead monster
 

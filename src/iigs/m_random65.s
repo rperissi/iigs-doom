@@ -9,6 +9,7 @@
               .rtmodel core, "*"
 
               .section znear, bss
+              .public prndindex       ; (d_net65.s: the consistency word)
 prndindex:    .space  2               ; the index of P_Random (low byte)
 rndindex:     .space  2               ; the index of M_Random (low byte)
 

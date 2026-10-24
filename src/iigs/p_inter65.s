@@ -5,7 +5,7 @@
 ;;; the death state and bookkeeping. Damage may invoke actor actions, so
 ;;; callers must preserve live scratch across these calls.
 
-              .extern P_SourceChainsaw
+              .extern P_SourceChainsaw, P_PlayerDied
               .extern weaponOffsets
               .rtmodel version, "1"
               .rtmodel core, "*"
@@ -1039,8 +1039,8 @@ killMobj:     jsr     .kbank targetArg
               lda     [.tiny _Dp],y
               and     ##(0xffff - CONST_MF_SOLID_LO)
               sta     [.tiny _Dp],y
-              lda     ##CONST_PST_DEAD
-              sta     .near (PL+OFS_PL_PLAYERSTATE)
+              jsl     long:P_PlayerDied     ; PST_DEAD; a frag (p_players65.s)
+              .space  2,0xea
               lda     ##.near PL
               sta     dp:.tiny _Dp
               lda     ##.word2 PL

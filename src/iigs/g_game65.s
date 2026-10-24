@@ -114,7 +114,7 @@ pars:         .byte   0, 30, 75, 120, 90, 165, 180, 180, 30, 165
 
               .section znear, bss
               .public _g_gameaction, _g_gamestate, _g_gameskill, _g_gamemap, _g_player
-              .extern maketic
+              .extern maketic, P_PlayersReborn, D_NetCmds
               .public _g_gametic, _g_basetic, _g_totalkills, _g_totallive, _g_totalitems
               .public _g_totalsecret, _g_wminfo, _g_respawnmonsters, _g_usergame
               .public _g_timingdemo, _g_demoplayback, _g_singledemo
@@ -146,6 +146,7 @@ savegameslot: .space  2               ; (a byte)
 secretexit:   .space  2
 defdemoname:  .space  4
 netcmd:       .space  SIZEOF_TC       ; the command G_BuildTiccmd makes
+              .public cmds            ; (d_net65.s)
 cmds:         .space  (CMDS * 8)      ; Tic t uses slot t & (CMDS-1).
               .space  4               ; Keep later near data at its offsets.
 GT_CMD:       .space  2               ; G_Ticker: the offset of its command
@@ -578,11 +579,8 @@ G_Ticker:     lda     .near _g_gametic
               asl     a
               asl     a
               sta     .near GT_CMD
-              lda     .near (PL+OFS_PL_PLAYERSTATE) ; G_DoReborn
-              cmp     ##CONST_PST_REBORN
-              bne     1$
-              lda     ##GA_LOADLEVEL
-              sta     .near _g_gameaction
+              jsl     long:P_PlayersReborn  ; G_DoReborn (p_players65.s)
+              .space  10,0xea                  ; (the size of the one-player test)
 1$:           jsl     long:P_MapEnd
 2$:           lda     .near _g_gameaction   ; each game action
               beq     4$
@@ -600,15 +598,8 @@ G_Ticker:     lda     .near _g_gametic
               bne     6$
               inc     .near (_g_basetic+2)
               bra     6$
-5$:           ldx     .near GT_CMD
-              lda     .near cmds,x
-              sta     .near (PL+OFS_PL_CMD)
-              lda     .near (cmds+2),x
-              sta     .near (PL+OFS_PL_CMD+2)
-              sep     #0x20
-              lda     .near (cmds+4),x
-              sta     .near (PL+OFS_PL_CMD+4)
-              rep     #0x20
+5$:           jsl     long:D_NetCmds        ; the commands to the players
+              .space  21,0xea                  ;   (d_net65.s; the size of the copy)
               lda     .near _g_demoplayback
               beq     6$
               jsr     .kbank readDemoTiccmd

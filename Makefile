@@ -20,10 +20,18 @@ OBJ      := $(BUILD)/obj
 # recorded only then.
 # make MAXTICS=M: a frame runs at most M tics of the game (1 to 15; the
 # default is 4, 8 with TICSTEP > 1); a slower frame makes the game slower.
+# make NETGAME=1: a two-player deathmatch over a CoGS card. The game joins
+# the relay NETHOST:NETPORT (tools/dmrelay.py) through the card in slot
+# COGSSLOT at the start instead of the title, and the disks keep the start
+# of player 2, the deathmatch starts and the net things (DOOMGSN.WAD).
 TICSTEP  ?= 1
+NETHOST  ?= 127.0.0.1
+NETPORT  ?= 5100
+COGSSLOT ?= 3
 ASFLAGS  := --code-model=large --data-model=medium -I tools/calypsi/src/lib/lowlevel \
             $(if $(PHASES),-D IIGS_PHASES) $(if $(PISCHECK),-D PISCHECK) -D TICSTEP=$(TICSTEP) \
-            $(if $(MAXTICS),-D MAXTICS=$(MAXTICS))
+            $(if $(MAXTICS),-D MAXTICS=$(MAXTICS)) \
+            $(if $(NETGAME),-D NETGAME -D NETHOST=\"$(NETHOST)\" -D NETPORT=$(NETPORT)) -D COGSSLOT=$(COGSSLOT)
 IIGS_S   := src/iigs/crt0.s src/iigs/iigs_asm.s src/iigs/irq65.s src/iigs/m_fixed65.s src/iigs/m_recip65.s \
             src/iigs/patch65.s src/iigs/r_iigs65.s src/iigs/r_sprite65.s src/iigs/r_seg65.s \
             src/iigs/p_sight65.s src/iigs/p_enemy65.s src/iigs/p_mobj65.s src/iigs/p_path65.s src/iigs/p_attack65.s src/iigs/p_pspr65.s src/iigs/p_user65.s \
@@ -33,7 +41,8 @@ IIGS_S   := src/iigs/crt0.s src/iigs/iigs_asm.s src/iigs/irq65.s src/iigs/m_fixe
             src/iigs/tables65.s src/iigs/info65.s src/iigs/r_state65.s \
             src/iigs/p_tick65.s src/iigs/p_map65.s src/iigs/string65.s src/iigs/r_wall65.s src/iigs/r_bsp65.s src/iigs/r_thing65.s src/iigs/p_trace65.s src/iigs/r_list65.s \
             src/iigs/i_doc65.s src/iigs/i_snd65.s src/iigs/m_config65.s \
-            src/iigs/cal_integer.s src/iigs/w_level65.s src/iigs/m_speed65.s src/iigs/i_stealth65.s src/iigs/solid65.s src/iigs/p_players65.s
+            src/iigs/cal_integer.s src/iigs/w_level65.s src/iigs/m_speed65.s src/iigs/i_stealth65.s src/iigs/solid65.s src/iigs/p_players65.s \
+            src/iigs/d_net65.s
 
 OBJS     := $(patsubst src/iigs/%.s,$(OBJ)/%.o,$(IIGS_S)) $(OBJ)/drawcol.o $(OBJ)/endtext.o
 
@@ -42,7 +51,7 @@ WADOUT   := $(BUILD)/wad
 # the timedemo builds keep DEMO1 and DEMO2 for the tests. wadtool writes the
 # resident WAD (FILE, FILE.SEG: its lumps in the free areas of the table
 # banks, FILE.PIC: the title picture) and the level store (tools/levelimg.py).
-WADFILE  := $(WADOUT)/$(if $(TIMEDEMO),DOOMGSD.WAD,DOOMGS.WAD)
+WADFILE  := $(WADOUT)/$(if $(TIMEDEMO),DOOMGSD.WAD,$(if $(NETGAME),DOOMGSN.WAD,DOOMGS.WAD))
 STOREFILE := $(WADFILE:.WAD=.STO)
 LEVELTOOLS := tools/levelset.py tools/levelimg.py tools/levelhot.txt tools/b1.py src/iigs/info65.s \
             src/iigs/p_switch65.s src/iigs/memmap.inc
@@ -56,7 +65,7 @@ all: disks
 disks: $(BUILD)/disk1.po
 
 # Rebuild everything when the build switches change
-DEFSTAMP := $(OBJ)/defs-$(if $(TIMEDEMO),timedemo,game)$(if $(PHASES),-phases)$(if $(PISCHECK),-pischeck)-tic$(TICSTEP)$(if $(MAXTICS),-max$(MAXTICS)).stamp
+DEFSTAMP := $(OBJ)/defs-$(if $(TIMEDEMO),timedemo,game)$(if $(PHASES),-phases)$(if $(PISCHECK),-pischeck)-tic$(TICSTEP)$(if $(MAXTICS),-max$(MAXTICS))$(if $(NETGAME),-net$(NETPORT)-slot$(COGSSLOT)).stamp
 $(DEFSTAMP): | $(OBJ)
 	rm -f $(OBJ)/defs-*.stamp
 	touch $@
@@ -157,6 +166,11 @@ $(WADOUT)/DOOMGS.WAD: data/demo2.hex $(WAD) tools/wadtool.py tools/gscolor.py to
 $(WADOUT)/DOOMGSD.WAD: data/demo2.hex $(WAD) tools/wadtool.py tools/gscolor.py tools/sgrid.py $(GSVIEW)/stamp $(LEVELTOOLS) $(WADOUT)/music.bin
 	$(PYTHON) tools/wadtool.py $(WAD) $(WADOUT) --demo2 data/demo2.hex --flat-span --layout 320 --gsview $(GSVIEW) --keep-demos --name DOOMGSD.WAD \
 	    --store $(WADOUT)/DOOMGSD.STO --src src/iigs --music-bank $(WADOUT)/music.bin
+
+# The net game: the start of player 2, the deathmatch starts, the net things.
+$(WADOUT)/DOOMGSN.WAD: data/demo2.hex $(WAD) tools/wadtool.py tools/gscolor.py tools/sgrid.py $(GSVIEW)/stamp $(LEVELTOOLS) $(WADOUT)/music.bin
+	$(PYTHON) tools/wadtool.py $(WAD) $(WADOUT) --demo2 data/demo2.hex --flat-span --layout 320 --gsview $(GSVIEW) --netthings --name DOOMGSN.WAD \
+	    --store $(WADOUT)/DOOMGSN.STO --src src/iigs --music-bank $(WADOUT)/music.bin
 
 $(WADOUT)/sounds.bin: $(WAD) tools/sndbank.py src/iigs/offsets.inc $(WADOUT)/music.bin
 	mkdir -p $(WADOUT)
