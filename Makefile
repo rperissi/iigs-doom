@@ -28,14 +28,26 @@ OBJ      := $(BUILD)/obj
 # the relay NETHOST:NETPORT (tools/dmrelay.py) through the card in slot
 # COGSSLOT at the start instead of the title, and the disks keep the start
 # of player 2, the deathmatch starts and the net things (DOOMGSN.WAD).
+# NETFLAGS are the card's CONNECT flags (spec v0.8: bit0 TLS, bit3
+# WebSocket). make NETGAME=1 LOBBY=1 [ROOM=CODE] joins the lobby's Pair
+# room wss://lobby.a2cogs.com/ws/pair?r=ROOM instead (firmware 1.36 or
+# the emulated card of cogs-1.36); the room sends the same seat byte and
+# 'G' as the relay.
 TICSTEP  ?= 1
+ifeq ($(LOBBY),1)
+ROOM     ?= DOOM1
+NETHOST  := lobby.a2cogs.com/ws/pair?r=$(ROOM)
+NETPORT  := 443
+NETFLAGS := 9
+endif
 NETHOST  ?= 127.0.0.1
 NETPORT  ?= 5100
+NETFLAGS ?= 0
 COGSSLOT ?= 3
 ASFLAGS  := --code-model=large --data-model=medium -I tools/calypsi/src/lib/lowlevel \
             $(if $(PHASES),-D IIGS_PHASES) $(if $(PISCHECK),-D PISCHECK) -D TICSTEP=$(TICSTEP) \
             $(if $(MAXTICS),-D MAXTICS=$(MAXTICS)) \
-            $(if $(NETGAME),-D NETGAME -D NETHOST=\"$(NETHOST)\" -D NETPORT=$(NETPORT)) -D COGSSLOT=$(COGSSLOT) \
+            $(if $(NETGAME),-D NETGAME -D NETHOST='"$(NETHOST)"' -D NETPORT=$(NETPORT) -D NETFLAGS=$(NETFLAGS)) -D COGSSLOT=$(COGSSLOT) \
             $(if $(BENCHEXIT),-D BENCHEXIT=$(BENCHEXIT)) $(if $(NOMONSTERS),-D NOMONSTERS)
 IIGS_S   := src/iigs/crt0.s src/iigs/iigs_asm.s src/iigs/irq65.s src/iigs/m_fixed65.s src/iigs/m_recip65.s \
             src/iigs/patch65.s src/iigs/r_iigs65.s src/iigs/r_sprite65.s src/iigs/r_seg65.s \
@@ -70,7 +82,7 @@ all: disks
 disks: $(BUILD)/disk1.po
 
 # Rebuild everything when the build switches change
-DEFSTAMP := $(OBJ)/defs-$(if $(TIMEDEMO),timedemo,game)$(if $(PHASES),-phases)$(if $(PISCHECK),-pischeck)-tic$(TICSTEP)$(if $(MAXTICS),-max$(MAXTICS))$(if $(NETGAME),-net$(NETPORT)-slot$(COGSSLOT))$(if $(BENCHEXIT),-exit$(BENCHEXIT))$(if $(NOMONSTERS),-nomonsters).stamp
+DEFSTAMP := $(OBJ)/defs-$(if $(TIMEDEMO),timedemo,game)$(if $(PHASES),-phases)$(if $(PISCHECK),-pischeck)-tic$(TICSTEP)$(if $(MAXTICS),-max$(MAXTICS))$(if $(NETGAME),-net$(NETPORT)-f$(NETFLAGS)-$(subst =,_,$(subst ?,_,$(subst /,_,$(NETHOST))))-slot$(COGSSLOT))$(if $(BENCHEXIT),-exit$(BENCHEXIT))$(if $(NOMONSTERS),-nomonsters).stamp
 $(DEFSTAMP): | $(OBJ)
 	rm -f $(OBJ)/defs-*.stamp
 	touch $@

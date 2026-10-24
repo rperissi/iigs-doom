@@ -10,12 +10,14 @@
 ;;; Doom's: the low word of the x of the player's mobj CMDS tics ago, as
 ;;; each machine computed it, compared when the command comes.
 ;;;
-;;; The card (CoGS spec v0.7): frames of opcode, 16 bit length, payload
+;;; The card (CoGS spec v0.8): frames of opcode, 16 bit length, payload
 ;;; through the DATA register of the slot; CONNECT (0x10) opens a TCP
-;;; socket to the relay (tools/dmrelay.py), SEND (0x11) carries a record,
-;;; and the DATA events (0x91) of the socket bring the records of the other
-;;; machine. The relay tells each machine its player number and when both
-;;; are in. Only socket 0 is used; the card is reset first.
+;;; socket to the relay (tools/dmrelay.py, or with NETFLAGS 9 a WebSocket
+;;; over TLS to the lobby's Pair room, lobby.a2cogs.com/ws/pair?r=ROOM,
+;;; firmware 1.36), SEND (0x11) carries a record, and the DATA events
+;;; (0x91) of the socket bring the records of the other machine. The relay
+;;; tells each machine its player number and when both are in. Only
+;;; socket 0 is used; the card is reset first.
 ;;;
 ;;; NETGAME (make NETGAME=1): D_DoomMain starts here instead of the title.
 ;;; Without it the game is the one-player game and this file only keeps
@@ -37,6 +39,9 @@ CMDS          .equ    8
 #endif
 #ifndef NETPORT
 #define NETPORT 5100
+#endif
+#ifndef NETFLAGS
+#define NETFLAGS 0                      ; CONNECT flags: 0 plain, 9 TLS + WS
 #endif
 
 CARD          .equ    0xE0C080 + (COGSSLOT << 4)
@@ -119,7 +124,7 @@ D_NetStart:   sep     #0x20
               cmp     ##4
               bcc     1$
               jsr     .kbank drainRx
-              lda     ##OP_CONNECT          ; CONNECT: sock 0, flags 0, port, host
+              lda     ##OP_CONNECT          ; CONNECT: sock 0, flags, port, host
               jsr     .kbank push8
               lda     ##(5 + HOSTLEN)
               jsr     .kbank push8
@@ -127,7 +132,7 @@ D_NetStart:   sep     #0x20
               jsr     .kbank push8
               lda     ##0
               jsr     .kbank push8
-              lda     ##0
+              lda     ##NETFLAGS
               jsr     .kbank push8
               lda     ##(NETPORT & 0xff)
               jsr     .kbank push8

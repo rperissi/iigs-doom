@@ -19,6 +19,10 @@
 # the CPU does not see Lua's RAM writes to banks 02 and 04, so a level
 # end comes from make NETGAME=1 BENCHEXIT=300 instead).
 # Seat A is player 0 (it connects first).
+# LOBBY=1: the build was make NETGAME=1 LOBBY=1 [ROOM=...] and the two
+# machines meet in the lobby's Pair room over wss (the emulated card of
+# cogs-1.36 does the WebSocket); no local relay is started. The room code
+# is in the build, so one run per code at a time.
 cd "$(dirname "$0")/.." || exit 1
 MAME=${MAME:-../webifi-mame/cogs}
 ZIP=${ZIP:-7}
@@ -68,9 +72,16 @@ fi
 
 rm -rf "$WORK"
 mkdir -p "$WORK"
-python3 tools/dmrelay.py --port "$PORT" --log "$WORK/relay.log" --seconds 300 &
-RELAY=$!
-trap 'kill $RELAY 2>/dev/null' EXIT
+if [ -n "$LOBBY" ]; then
+    strings build/doom.elf | grep -q "lobby.a2cogs.com" || {
+        echo "LOBBY=1 but the build has no lobby host: make NETGAME=1 LOBBY=1 first" >&2; exit 1; }
+    echo "lobby: $(strings build/doom.elf | grep -o 'lobby.a2cogs.com/ws/pair?r=[A-Za-z0-9-]*' | head -1)" > "$WORK/relay.log"
+    RELAY=
+else
+    python3 tools/dmrelay.py --port "$PORT" --log "$WORK/relay.log" --seconds 300 &
+    RELAY=$!
+    trap 'kill $RELAY 2>/dev/null' EXIT
+fi
 
 ROOT=$(pwd)
 seat() {
