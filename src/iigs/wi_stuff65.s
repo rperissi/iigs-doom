@@ -68,7 +68,8 @@ L_WINUM       .equ    28              ; WINUM0..9
 L_WILV        .equ    48              ; WILV00..08
 #ifdef NETGAME
 L_WIFRGS      .equ    66              ; "FRAGS" (the deathmatch stats)
-NUMLUMPS      .equ    34
+L_WIMINUS     .equ    68
+NUMLUMPS      .equ    35
 DM_ROWY       .equ    (SP_STATSY + LINEHEIGHT + 4) ; a player's row
 DM_ROWH       .equ    (LINEHEIGHT + 2)
 DM_NUMX       .equ    (SCREENW/2 + 2*FONTWIDTH) ; the right end of the frags
@@ -138,6 +139,7 @@ lumpNames:    .asciz  "WIMAP0"
               .asciz  "WILV08"
 #ifdef NETGAME
               .asciz  "WIFRGS"
+              .asciz  "WIMINUS"
 #endif
 lnodes:       .word   185, 164        ; the places of the levels on the map
               .word   148, 143
@@ -852,8 +854,8 @@ drawStats:    jsr     .kbank slamBackground
 
 #ifdef NETGAME
 ;;; drawFrags: the deathmatch stats: FRAGS over a row per player, his
-;;; number (WINUM) and his frags (0 for a negative count: no minus sign in
-;;; the set), the map's arrow at the console player's row.
+;;; number (WINUM) and his frags (with the minus of WI_drawNum), the map's
+;;; arrow at the console player's row.
 drawFrags:    lda     ##SP_STATSY
               sta     .near WI_Y
               lda     ##(SCREENW/2 - 28)
@@ -878,12 +880,24 @@ drawFrags:    lda     ##SP_STATSY
               tax
               lda     .near _g_frags,x
               bpl     3$
-              lda     ##0
+              eor     ##0xffff
+              inc     a
 3$:           sta     .near WI_N
               lda     ##DM_NUMX
               sta     .near WI_X
               jsr     .kbank digitCount
               jsr     .kbank drawNum
+              lda     .near WI_I
+              asl     a
+              tax
+              lda     .near _g_frags,x
+              bpl     5$
+              lda     .near WI_X            ; the minus before the digits
+              sec                           ;   (its top offset centers it)
+              sbc     ##8
+              ldx     ##L_WIMINUS
+              jsr     .kbank drawLump
+5$:
               lda     .near WI_I            ; the arrow at the console
               cmp     .near _g_consoleplayer ;   player's row
               bne     4$
@@ -897,8 +911,9 @@ drawFrags:    lda     ##SP_STATSY
 4$:           inc     .near WI_I
               lda     .near WI_I
               cmp     ##2
-              bcc     1$
-              rts
+              bcs     6$
+              brl     1$
+6$:           rts
 #endif
 
 ;;; drawPercent: WI_drawPercent(SCREENW - SP_STATSX, WI_Y, C): nothing for

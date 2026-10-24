@@ -43,11 +43,14 @@ KEYS_B=${KEYS_B-40:Right Arrow:20,120:Left Arrow:20,160:Control:10}
 # COOP_STARTS=1: no deathmatch starts kept (the MAX_DMSTARTS of
 # P_SpawnPlayerN becomes 0 in the loaded code), so the players spawn at
 # their own starts, next to each other in E1M1: player 0 turning left
-# about 72 degrees faces player 1.
+# about 72 degrees faces player 1. DMSTARTS=N keeps the first N starts of
+# a map instead (DMSTARTS=1: player 0 at the first one, player 1 at his
+# own start; E1M2's first is 51 units west of a shotgun, facing it).
 POKE=${POKE-}
-if [ -n "$COOP_STARTS" ]; then
+[ -n "$COOP_STARTS" ] && DMSTARTS=0
+if [ -n "$DMSTARTS" ]; then
     POKE=${POKE:+$POKE,}$(python3 - <<'PY'
-import struct, subprocess
+import os, struct, subprocess
 addr = int(subprocess.check_output(['python3', 'tools/symaddr.py', 'build/doom.elf', 'P_SpawnPlayerN']).decode(), 16)
 d = open('build/doom.elf', 'rb').read()
 phoff, = struct.unpack_from('<I', d, 28)
@@ -57,10 +60,10 @@ for i in range(phnum):
     if t == 1 and pa <= addr < pa + fsz:
         o = off + addr - pa
         k = d[o:o + 48].find(bytes([0xc9, 10, 0]))     # cmp ##MAX_DMSTARTS
-        print('120:%06x:00' % (addr + k + 1) if k >= 0 else '')
+        print('120:%06x:%02x' % (addr + k + 1, int(os.environ['DMSTARTS'])) if k >= 0 else '')
 PY
 )
-    [ -n "$POKE" ] || { echo "COOP_STARTS: no cmp ##MAX_DMSTARTS found" >&2; exit 1; }
+    [ -n "$POKE" ] || { echo "DMSTARTS: no cmp ##MAX_DMSTARTS found" >&2; exit 1; }
 fi
 
 rm -rf "$WORK"

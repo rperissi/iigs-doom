@@ -496,7 +496,7 @@ def remove_unused(wad, flat_span, layout, keep_demos, netthings=False):
             continue
         if keep_demos and p in ('DEMO1', 'DEMO2'):
             continue
-        if netthings and p == 'WIFRGS':    # the deathmatch intermission
+        if netthings and p in ('WIFRGS', 'WIMINUS'):    # the deathmatch intermission
             continue
         wad.remove_prefix(p)
     if flat_span:

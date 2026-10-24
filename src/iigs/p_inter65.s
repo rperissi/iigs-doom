@@ -31,7 +31,7 @@ CLEARCLEAN    .macro  p
               .extern R_PointToAngle3, FixedMulAngle, finesine, finecosine
               .extern IIGS_MulLo16, _Mul32, _Div32, _Div16, notePeak
 #ifdef NETGAME
-              .extern _g_netgame
+              .extern _g_netgame, _g_resident, _g_consoleplayer
 #endif
 
 PL            .equ    _g_player
@@ -184,6 +184,13 @@ touchSpecialThing0:
               clc
               adc     ##BONUSADD
               sta     .near (PL+OFS_PL_BONUSCOUNT)
+#ifdef NETGAME
+              lda     .near _g_resident     ; the console player's pickups
+              cmp     .near _g_consoleplayer ;   only (Doom)
+              beq     7$
+              rtl
+7$:
+#endif
               jsr     .kbank playerMo       ; S_StartSound(player->mo, sound | PICKUP_SOUND)
               lda     .near IN_SOUND
               ora     ##PICKUP_SOUND
