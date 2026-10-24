@@ -93,6 +93,10 @@ _g_fps_framerate: .space 2
 #endif
 maketic:      .space  4               ; the tic commands made
 lastmadetic:  .space  4
+#ifdef NETGAME
+menutic:      .space  2               ; the tics M_Ticker has seen (the
+                                      ;   net game's menu pauses nothing)
+#endif
 pagetic:      .space  2               ; the tics of the title page
 singletics:   .space  2               ; One tic per frame (-timedemo).
 advancedemo:  .space  2
@@ -291,6 +295,22 @@ tryRunTics:   jsl     long:I_GetTime
               beq     12$
               bra     15$                 ; Every menu pauses its screen.
               .space  7
+#ifdef NETGAME
+;;; The net game: the other machine has the commands already made, so the
+;;; menu pauses nothing (as Doom's). M_Ticker runs for the tics made since
+;;; it last ran; the world runs on below.
+15$:          lda     .near maketic
+              sec
+              sbc     .near menutic
+              beq     12$
+              sta     .near TR_RUN
+13$:          jsl     long:M_Ticker
+              dec     .near TR_RUN
+              bne     13$
+              lda     .near maketic
+              sta     .near menutic
+              bra     12$
+#else
 15$:          lda     .near maketic         ; the new tics: M_Ticker
               sec
               sbc     .near _g_gametic
@@ -304,6 +324,7 @@ tryRunTics:   jsl     long:I_GetTime
               lda     .near (_g_gametic+2)
               sta     .near (maketic+2)
 14$:          rts
+#endif
 12$:          lda     .near netmaketic      ; runtics = maketic - gametic
               sec                           ;   (netmaketic: the tics both
               sbc     .near _g_gametic      ;   players have, = maketic alone)

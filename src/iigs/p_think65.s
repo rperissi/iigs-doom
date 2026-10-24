@@ -184,7 +184,11 @@ P_NextThinker:
 LOGIC_SP      .equ    0x1b6f
 
               .public P_Ticker
-P_Ticker:     lda     .near _g_menuactive   ; paused in the menu, after a tic
+P_Ticker:
+#ifdef NETGAME
+              bra     1$                    ; (the menu pauses nothing: lockstep)
+#endif
+              lda     .near _g_menuactive   ; paused in the menu, after a tic
               beq     1$
               lda     .near _g_demoplayback
               bne     1$

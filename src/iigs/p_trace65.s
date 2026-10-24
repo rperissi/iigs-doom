@@ -54,7 +54,15 @@ VBTH          .equ    21              ;   -21..13 for the corners of things
 VBTL          .equ    13              ;   (their fractions)
 SQM_LO        .equ    (256 * VJ - VRN - 2048) ; SQMID: the squares of sub + V2 +- SQ
 SQM_HI        .equ    (256 * VJ + VRN + 2048)
+#ifdef NETGAME
+;;; The net game's menu pauses nothing, and the view saved under it would
+;;; cover the table while the other player shoots: the loader's sign
+;;; scratch instead (MM_BUSY, 16 KB; the sign is off while a level runs,
+;;; and sqmFlood runs at each load).
+SQM_TAB       .equ    (MM_BUSY + 0)   ; 2 * (SQM_HI - SQM_LO + 1) bytes
+#else
 SQM_TAB       .equ    (MM_VIEWSAVE + 0) ; 2 * (SQM_HI - SQM_LO + 1) bytes
+#endif
 SQMID         .equ    (SQM_TAB - 2 * SQM_LO) ; square n at SQMID + 2 * n
 
 TR_X          .equ    (_g_trace + OFS_DL_X)

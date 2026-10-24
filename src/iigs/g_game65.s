@@ -592,6 +592,9 @@ G_Ticker:     lda     .near _g_gametic
               bra     2$
 4$:           lda     .near _g_demoplayback ; the tic command
               bne     5$
+#ifdef NETGAME
+              bra     5$                    ; (the menu pauses nothing)
+#endif
               lda     .near _g_menuactive
               beq     5$
               inc     .near _g_basetic      ; paused: the demo sync
