@@ -21,6 +21,7 @@
 #include "music.inc"
 
               .extern _Dp, _g_player, _g_gamemap
+              .extern _g_listenerMo       ; the console player's mobj (p_players65.s)
               .extern R_PointToAngle3, finesineapprox, IIGS_MulLo16
               .extern _Mul32, _Div16, _Div32, _UDivMod32, MA, MB, MR, umul16
               .extern IIGS_DocWrite2, IIGS_DocRead, IIGS_DocUpload, IIGS_DecodeSound
@@ -231,10 +232,10 @@ S_StartSound: sta     .near SS_SFX
               ora     .near (SS_ORIGIN+2)
               beq     5$
               lda     .near SS_ORIGIN
-              cmp     .near (PL+OFS_PL_MO)
+              cmp     .near _g_listenerMo
               bne     6$
               lda     .near (SS_ORIGIN+2)
-              cmp     .near (PL+OFS_PL_MO+2)
+              cmp     .near (_g_listenerMo+2)
               bne     6$
 5$:           lda     .near snd_SfxVolume
               asl     a
@@ -404,10 +405,10 @@ S_UpdateSounds:
               ora     dp:.tiny (_Dp+4)
               beq     4$
               lda     dp:.tiny (_Dp+4)
-              cmp     .near (PL+OFS_PL_MO)
+              cmp     .near _g_listenerMo
               bne     3$
               lda     dp:.tiny (_Dp+6)
-              cmp     .near (PL+OFS_PL_MO+2)
+              cmp     .near (_g_listenerMo+2)
               beq     4$
 3$:           lda     .near snd_SfxVolume   ; volume, sep
               sta     .near SS_VOL
@@ -432,9 +433,9 @@ S_UpdateSounds:
 ;;; view, the volume from its distance (full within S_CLOSE_DIST, none
 ;;; beyond S_CLIPPING_DIST except on map 8). Carry set if audible.
 ;;; ---------------------------------------------------------------------------
-adjustParams: lda     .near (PL+OFS_PL_MO)  ; no listener: no
+adjustParams: lda     .near _g_listenerMo  ; no listener: no
               sta     dp:.tiny _Dp
-              lda     .near (PL+OFS_PL_MO+2)
+              lda     .near (_g_listenerMo+2)
               sta     dp:.tiny (_Dp+2)
               ora     dp:.tiny _Dp
               bne     1$
@@ -527,9 +528,9 @@ adjustParams: lda     .near (PL+OFS_PL_MO)  ; no listener: no
               jsl     long:R_PointToAngle3
               sta     .near SS_ANG
               stx     .near (SS_ANG+2)
-              lda     .near (PL+OFS_PL_MO)  ; the listener again
+              lda     .near _g_listenerMo  ; the listener again
               sta     dp:.tiny _Dp
-              lda     .near (PL+OFS_PL_MO+2)
+              lda     .near (_g_listenerMo+2)
               sta     dp:.tiny (_Dp+2)
               ldy     ##OFS_MO_ANGLE        ; angle <= listener->angle: - 1
               lda     [.tiny _Dp],y
@@ -1962,8 +1963,8 @@ musFrame:     lda     long:musPend
               and     ##0x00ff
               beq     1$
               jsl     long:musStep
-1$:           lda     .near (PL+OFS_PL_MO)
-              ora     .near (PL+OFS_PL_MO+2)
+1$:           lda     .near _g_listenerMo
+              ora     .near (_g_listenerMo+2)
               beq     2$
               jmp     long:S_UpdateSounds
 2$:           rtl

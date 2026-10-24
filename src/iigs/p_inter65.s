@@ -5,6 +5,7 @@
 ;;; the death state and bookkeeping. Damage may invoke actor actions, so
 ;;; callers must preserve live scratch across these calls.
 
+              .extern P_SourceChainsaw
               .extern weaponOffsets
               .rtmodel version, "1"
               .rtmodel core, "*"
@@ -46,6 +47,7 @@ IN_OLD:       .space  2               ;   the ammo before
 IN_WEAPON:    .space  2               ; giveWeapon: the weapon
 DM_TARGET:    .space  4               ; P_DamageMobj: target
 DM_INFL:      .space  4               ;   inflictor
+              .public DM_SOURCE     ; for P_SourceChainsaw
 DM_SOURCE:    .space  4               ;   source
 DM_DAMAGE:    .space  2               ;   damage
 DM_PLAYER:    .space  2               ;   1: target is the player
@@ -752,16 +754,10 @@ thrust:       lda     .near DM_INFL
               and     ##CONST_MF_NOCLIP
               beq     2$
               rts
-2$:           lda     .near DM_SOURCE       ; the source is the player with the
-              cmp     .near (PL+OFS_PL_MO)  ; chainsaw: no push
-              bne     3$
-              lda     .near (DM_SOURCE+2)
-              cmp     .near (PL+OFS_PL_MO+2)
-              bne     3$
-              lda     .near (PL+OFS_PL_READYWEAPON)
-              cmp     ##CONST_WP_CHAINSAW
-              bne     3$
+2$:           jsl     long:P_SourceChainsaw ; the source is a player with the
+              bcc     3$                    ; chainsaw: no push (p_players65.s)
               rts
+              .space  18                    ; (the size of the one-player test)
 3$:           lda     .near DM_INFL         ; ang = R_PointToAngle2(inflictor, target)
               sta     dp:.tiny (_Dp+4)
               lda     .near (DM_INFL+2)

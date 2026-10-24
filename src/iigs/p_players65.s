@@ -13,12 +13,15 @@
 ;;; of iigs.scm), and the edits in the other files are size neutral, so the
 ;;; packed coldcode/farcode fragments of the stock build do not move.
 ;;;
-;;; Still one-player (the identity tests that read _g_player's mobj and
-;;; must know both players): thrust of p_inter65.s (the chainsaw of the
-;;; source), lines and P_TeleportMove of p_map65.s, isPlayer of p_switch65.s
-;;; and p_mobj65.s, the listener of s_sound65.s, lookForPlayers of
-;;; p_enemy65.s, P_SetupLevel's clearing of the mobj (player 1's save slot
-;;; keeps the old one), doCompleted and the saves of g_game65.s.
+;;; Done here beyond the wrappers: the thrust of p_inter65.s (the chainsaw
+;;; of the source, P_SourceChainsaw), the listener of s_sound65.s
+;;; (_g_listenerMo, the console player's mobj whoever is resident) and
+;;; P_SetupLevel's clearing of the mobjs (P_ClearPlayerMo, both slots).
+;;; Correct under the wrappers as they are: lines and P_TeleportMove of
+;;; p_map65.s, isPlayer of p_switch65.s and p_mobj65.s.
+;;;
+;;; Still one-player: lookForPlayers of p_enemy65.s, killMobj's frags and
+;;; killcount (the source's player), doCompleted and the saves of g_game65.s.
 
               .rtmodel version, "1"
               .rtmodel core, "*"
@@ -27,7 +30,7 @@
 
               .extern _Dp, _g_player, P_PlayerThink
               .extern mobjThinker0, damageMobj0, touchSpecialThing0, evTeleport0
-              .extern spawnPlayer
+              .extern spawnPlayer, DM_SOURCE
 
               .section znear, bss
               .public _g_resident, _g_consoleplayer, _g_playeringame, _g_deathmatch
@@ -35,6 +38,8 @@ _g_resident:  .space  2               ; the player whose struct is _g_player
 _g_consoleplayer: .space 2            ; the player at this machine
 _g_playeringame: .space 4             ; player 0 is always in; a word for player 1
 _g_deathmatch: .space 2
+              .public _g_listenerMo
+_g_listenerMo: .space 4              ; the console player's mobj, whoever is resident
 WR_T:         .space  2               ; a wrapper's word across a swap
 
               .section zfar, bss
@@ -68,7 +73,28 @@ P_SwapTo:     cmp     .near _g_resident
               phb
               .byte   0x54, .byte2 _g_player, .byte2 _g_psave ; mvn
               plb
+              jsr     .kbank refreshListener
 9$:           rtl
+
+;;; refreshListener: _g_listenerMo = the console player's mobj, from the
+;;; resident struct or his save slot. After anything that moves a struct
+;;; or sets a mobj.
+refreshListener:
+              lda     .near _g_consoleplayer
+              cmp     .near _g_resident
+              bne     1$
+              lda     .near (_g_player+OFS_PL_MO)
+              ldx     .near (_g_player+OFS_PL_MO+2)
+              bra     2$
+1$:           jsr     .kbank saveSlot
+              lda     long:(_g_psave+OFS_PL_MO),x
+              pha
+              lda     long:(_g_psave+OFS_PL_MO+2),x
+              tax
+              pla
+2$:           sta     .near _g_listenerMo
+              stx     .near (_g_listenerMo+2)
+              rts
 
 ;;; saveSlot: C = the player; out C = the address of his save slot in its
 ;;; bank (.byte2 _g_psave), X = its offset from _g_psave.
@@ -272,8 +298,87 @@ P_SpawnPlayerN:
               jsl     long:P_SwapTo
               jsl     long:spawnPlayer
               pla
-              jsl     long:P_SwapTo
+              jsl     long:P_SwapTo         ; (refreshes the listener when it swaps)
+              jsr     .kbank refreshListener ; and when it does not
 9$:           sec
               rtl
 8$:           clc
+              rtl
+
+;;; ---------------------------------------------------------------------------
+;;; void P_ClearPlayerMo(void)
+;;; No player has a mobj: before the things of a level spawn (P_SetupLevel).
+;;; Both save slots too, or a stale pointer there could match a new mobj at
+;;; the same address.
+;;; ---------------------------------------------------------------------------
+              .public P_ClearPlayerMo
+P_ClearPlayerMo:
+              stz     .near (_g_player+OFS_PL_MO)
+              stz     .near (_g_player+OFS_PL_MO+2)
+              lda     ##0                   ; (stz has no long mode)
+              ldx     ##0
+              sta     long:(_g_psave+OFS_PL_MO),x
+              sta     long:(_g_psave+OFS_PL_MO+2),x
+              ldx     ##SIZEOF_PL
+              sta     long:(_g_psave+OFS_PL_MO),x
+              sta     long:(_g_psave+OFS_PL_MO+2),x
+              jsr     .kbank refreshListener
+              rtl
+
+;;; ---------------------------------------------------------------------------
+;;; playerField: In: _Dp[0-3] = a mobj, Y = the offset of a player field.
+;;; Out: carry set and C = that field of the mobj's player, from the
+;;; resident struct or his save slot; carry clear if it is no player's.
+;;; ---------------------------------------------------------------------------
+playerField:  phy
+              jsl     long:P_PlayerOfMobj
+              ply
+              cmp     ##0
+              bne     1$
+              cpx     ##0
+              beq     8$
+1$:           cmp     ##.near _g_player
+              bne     2$
+              cpx     ##.word2 _g_player
+              bne     2$
+              lda     abs:.near _g_player,y
+              sec
+              rts
+2$:           sec                           ; his save slot: the offset in it
+              sbc     ##.word0 _g_psave
+              sty     .near WR_T
+              clc
+              adc     .near WR_T
+              tax
+              lda     long:_g_psave,x
+              sec
+              rts
+8$:           clc
+              rts
+
+;;; ---------------------------------------------------------------------------
+;;; P_SourceChainsaw: carry set if DM_SOURCE (p_inter65.s, the source of the
+;;; damage) is a player holding the chainsaw. Keeps _Dp.
+;;; ---------------------------------------------------------------------------
+              .public P_SourceChainsaw
+P_SourceChainsaw:
+              pei     dp:.tiny (_Dp+2)
+              pei     dp:.tiny _Dp
+              lda     .near DM_SOURCE
+              sta     dp:.tiny _Dp
+              lda     .near (DM_SOURCE+2)
+              sta     dp:.tiny (_Dp+2)
+              ldy     ##OFS_PL_READYWEAPON
+              jsr     .kbank playerField
+              bcc     1$
+              cmp     ##CONST_WP_CHAINSAW
+              beq     2$
+1$:           ldx     ##0                   ; no
+              bra     3$
+2$:           ldx     ##1                   ; yes
+3$:           pla
+              sta     dp:.tiny _Dp
+              pla
+              sta     dp:.tiny (_Dp+2)
+              cpx     ##1                   ; carry = X
               rtl

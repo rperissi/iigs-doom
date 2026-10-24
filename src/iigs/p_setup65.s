@@ -13,6 +13,7 @@
 #include "memmap.inc"
 
               .extern _Dp, IIGS_MulLo16, _UDivMod16, I_Error, MA
+              .extern P_ClearPlayerMo
               .extern W_GetNumForName, W_GetLumpByNum, W_LumpLength
               .extern Z_CallocLevel, Z_MallocLevel, Z_FreeTags, poolInit
 PAD_LT        .equ    0
@@ -153,8 +154,8 @@ P_SetupLevel: pha
               jsr     .kbank groupLines
               jsl     long:rlSave
               jsl     long:rlSightTables    ; (the sector of each subsector)
-              stz     .near (PL+OFS_PL_MO)
-              stz     .near (PL+OFS_PL_MO+2)
+              jsl     long:P_ClearPlayerMo  ; no player has a mobj yet (p_players65.s)
+              .space  2
               jsr     .kbank loadThings2
               jsl     long:P_SpawnSpecials
               jmp     long:P_MapEnd
