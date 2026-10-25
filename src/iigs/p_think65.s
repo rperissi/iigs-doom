@@ -12,6 +12,9 @@
 #include "tics.inc"
 
               .extern _Dp, _g_player, _g_menuactive, _g_gameaction
+#ifdef NETGAME
+              .extern _g_netgame
+#endif
               .extern _g_demoplayback, _g_gamestate
               .extern Z_Free, P_PlayerThink, P_RunThinkers, P_UpdateSpecials
               .extern P_PlayersThink
@@ -186,8 +189,9 @@ LOGIC_SP      .equ    0x1b6f
               .public P_Ticker
 P_Ticker:
 #ifdef NETGAME
-              bra     1$                    ; (the menu pauses nothing: lockstep)
-#endif
+              lda     .near _g_netgame      ; (the menu pauses nothing in a net
+              bne     1$                    ;   game: lockstep; one player's
+#endif                                      ;   again after the other left)
               lda     .near _g_menuactive   ; paused in the menu, after a tic
               beq     1$
               lda     .near _g_demoplayback

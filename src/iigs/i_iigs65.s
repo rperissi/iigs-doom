@@ -102,6 +102,7 @@ keyStamp:     .space  256             ; the call of I_StartTic that saw each
 
               .section cfar, rodata
 msgTitle:     .asciz  "Doom for the Apple IIgs\n\n"
+msgAnyKey:    .asciz  "\nPress a key to quit.\n"
 errSegPage:   .asciz  "R_CheckSegPage: the direct page does not fit the wall loop"
 #if defined TIMEDEMO_N
 demoName:     .ascii  "demo"
@@ -332,7 +333,18 @@ I_Error:      tsc                           ; the first value (bank 0)
               jsr     .kbank format
               lda     ##10
               jsr     .kbank putChar
-1$:           bra     1$
+              lda     ##.word0 msgAnyKey    ; a way out (the screen used to
+              sta     dp:.tiny _Dp          ;   spin here; a net game's
+              lda     ##.word2 msgAnyKey    ;   player left landed on it)
+              sta     dp:.tiny (_Dp+2)
+              jsr     .kbank format
+              sep     #0x20
+              sta     long:0xe0c010         ; the strobe: a key held is old
+1$:           lda     long:0xe0c000         ; (shutdown: the ADB reads keys)
+              bpl     1$
+              sta     long:0xe0c010
+              rep     #0x20
+              jmp     long:quitToBasic
 
 ;;; shutdown: I_Shutdown: the graphics (if on), the interrupt and the sound
 ;;; stop, the ROM is back, the ADB microcontroller reads the keyboard again

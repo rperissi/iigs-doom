@@ -83,6 +83,7 @@ MSG_SAVEDEAD  .equ    12              ;   (no Y or N: any key, also for the
 MSG_BENCH     .equ    16              ;   benchmark result of bmDone,
 MSG_SAVEFAIL  .equ    20              ;   and a failed disk write)
 MSG_NETGAME   .equ    24              ;   not in a net game (NETGAME)
+MSG_NETLEFT   .equ    28              ;   the other player left (NETGAME)
 L_DOOM        .equ    0               ; the patch lumps in LUMPS (x 2)
 L_NGAME       .equ    2
 L_OPTION      .equ    4
@@ -978,7 +979,16 @@ answer:       ldx     .near messageKind
               beq     9$
               jsl     long:I_Quit
               rts
-2$:           cpx     ##MSG_SAVEDEAD
+2$:
+#ifdef NETGAME
+              cpx     ##MSG_NETLEFT         ; the other player left: the
+              bne     20$                   ;   title, as END GAME
+              jsr     .kbank clearMenus
+              jsl     long:D_StartTitle
+              rts
+20$:
+#endif
+              cpx     ##MSG_SAVEDEAD
               bcs     9$
               cmp     ##0                   ; end game: the demo ends, the
               beq     9$                    ;   title comes
@@ -1661,6 +1671,14 @@ saveDone:     bcs     1$
 M_SaveFailed: lda     ##MSG_SAVEFAIL
               jsr     .kbank startMessage
               rtl
+#ifdef NETGAME
+;;; M_NetLeft: D_Net saw the relay close during the game (the other
+;;; player left): the message, and its key takes the title.
+              .public M_NetLeft
+M_NetLeft:    lda     ##MSG_NETLEFT
+              jsr     .kbank startMessage
+              rtl
+#endif
 
 #ifndef NETGAME
               .space  (0x93d - (. - menuColdStart))
@@ -1726,8 +1744,10 @@ AS_CORE       .equ    0xe2000c        ; Core version, valid after the presence c
 msgTexts:     .long   msgNightmare, msgQuit, msgEndGame, msgSaveDead
               .long   VW_BTXT, msgSaveFail
 #ifdef NETGAME
-              .long   msgNetGame
+              .long   msgNetGame, msgNetLeft
 msgNetGame:   .ascii  "You can't do that in a net game!\n\n"
+              .asciz  "Press a key."
+msgNetLeft:   .ascii  "The other player left the game.\n\n"
               .asciz  "Press a key."
 #endif
 txBench:      .asciz  "BENCHMARK"

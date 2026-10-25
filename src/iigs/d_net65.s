@@ -134,6 +134,7 @@ JP_ERROR      .equ    7               ;   it failed (the lines say why)
               .extern _Dp, _g_player, _g_gametic, maketic, cmds
               .extern _g_resident, _g_consoleplayer, _g_playeringame
               .extern _g_deathmatch, _g_netgame, _g_nomonsters, P_SwapTo
+              .extern M_NetLeft
               .extern _g_frags
               .extern I_Error, I_GetTime, prndindex, _g_psave, G_ExitLevel
 #ifdef NETGAME
@@ -1866,11 +1867,16 @@ timeByte:     ldx     .near rxidx           ; (rxidx counts from 1)
               inc     .near netflag
               brl     payloadDone
 
-;;; ackByte: EV_SEND_ACK: sock, result.
+;;; ackByte: EV_SEND_ACK: sock, result. The records sent in the pass that
+;;; then reads the relay's close are refused (8, the socket is gone): their
+;;; acks come after the EV_CLOSED, when the game is one player's, and are
+;;; dropped (seen in the bench: SEND FAILED (8) instead of the message).
 ackByte:      ldx     .near rxidx
               cpx     ##2
               bne     done
               cmp     ##0
+              beq     done
+              ldx     .near _g_netgame
               beq     done
               pha
               lda     ##.word0 errSend
@@ -1895,10 +1901,14 @@ closedByte:   ldx     .near rxidx
               bne     done
               ldx     .near _g_netgame
               beq     failed
-              pha
-              lda     ##.word0 errClosed
-              ldx     ##.word2 errClosed
-              brl     error
+;;; The relay closed during the game: the other player left. The game
+;;; goes on as one player's (no more records out or in; the menu pauses
+;;; it) under a message whose key takes the title (M_NetLeft, m_menu65),
+;;; where NETWORK GAME is back. (Was I_Error, a screen with no way out.)
+              stz     .near _g_netgame
+              stz     .near (_g_playeringame+2)
+              jsl     long:M_NetLeft
+              brl     payloadDone
 done:         brl     payloadDone
 
 ;;; dataByte: EV_DATA: sock, bytes. Before the go the relay sends our
