@@ -19,12 +19,21 @@
 ;;; tells each machine its player number and when both are in. Only
 ;;; socket 0 is used; the card is reset first.
 ;;;
-;;; NETGAME (make NETGAME=1): D_DoomMain calls D_NetJoin before the
-;;; graphics start (the card is found, slots 7 to 1, its network waited
-;;; for, the relay joined, with the progress on the startup text screen,
-;;; as IPXSETUP's "Attempting to find all players"), then D_NetStart
-;;; instead of the title. Without it the game is the one-player game and
-;;; this file only keeps netmaketic equal to maketic.
+;;; NETGAME (make NETGAME=1): NETWORK GAME is the second row of the main
+;;; menu (D_NetMainMenu puts it in, out during a game): its page is the
+;;; game (deathmatch or cooperative), the skill, the map, the monsters,
+;;; a room code and FIND PLAYERS, which starts the join: a state machine
+;;; run from D_NetUpdate (D_NetJoinTick), so the menu and the demo behind
+;;; it go on: the card (findCard, slots 7 to 1), its network (TIME not
+;;; 0), the relay (CONNECT, again after a failure), the player number and
+;;; the go from it, and for player 1 the setup record of player 0 (the
+;;; game is player 0's choice). Then the game (startGame): both players
+;;; to be born, the tic counters from 0 on both machines, a new game at
+;;; the next tic. The progress goes on the page, as IPXSETUP's
+;;; "Attempting to find all players"; Esc cancels. AUTOJOIN (the bench):
+;;; the game opens the page and starts the join itself instead of the
+;;; title. Without NETGAME the game is the one-player game and this file
+;;; only keeps netmaketic equal to maketic.
 
               .rtmodel version, "1"
               .rtmodel core, "*"
@@ -43,6 +52,8 @@ CMDS          .equ    8
 #ifndef NETFLAGS
 #define NETFLAGS 0                      ; CONNECT flags: 0 plain, 9 TLS + WS
 #endif
+;;; NETROOM: the room code the page starts with (none: blank, the public
+;;; room); make passes it only when ROOM is set.
 
 ;;; The card: its registers are CARD + the slot's offset (slot * 16, in
 ;;; cardoff, found by findCard: slots 7 to 1, the DEVSEL signature: ID $A2
@@ -74,17 +85,63 @@ NS_CONNECTED  .equ    1               ;   the socket is open
 NS_NUMBERED   .equ    2               ;   the relay said which player we are
 NS_GO         .equ    3               ;   both machines are in
 NS_FAILED     .equ    4               ;   the connect failed (netfail: why)
-ADB_ESCAPE    .equ    0x35            ; the ADB key code of Esc
-ADBQ_MASK     .equ    31              ; (i_iigs65.s)
 JOIN_TRIES    .equ    5               ; connects before giving up
 NET_WAIT      .equ    90              ; s for the card's network
 GO_WAIT       .equ    600             ; s for the other player
+SETUP_TIC     .equ    0xffff          ; the tic of the setup record
+
+;;; The page (m_menu65.s: MENU_SOUND, no menu of its own now, is its
+;;; number; the skull goes by menuX, menuY and menuLine of it).
+MENU_NET      .equ    14
+MENU_LOAD     .equ    4
+MENU_OPTIONS  .equ    6
+MENU_SAVE     .equ    10
+L_NETGM       .equ    68              ; the lumps (m_menu65.s)
+L_OPTION      .equ    4
+L_LOADG       .equ    6
+L_QUITG       .equ    8
+L_SAVEG       .equ    66
+EV_DATA1      .equ    2               ; event_t (type 0: ev_keydown)
+NM_ROWS       .equ    6               ; the rows
+R_GAME        .equ    0
+R_SKILL       .equ    1
+R_MAP         .equ    2
+R_MON         .equ    3
+R_CODE        .equ    4
+R_FIND        .equ    5
+NM_X          .equ    60              ; the rows: x, y, the line
+NM_Y          .equ    44
+NM_LINE       .equ    16
+NM_RIGHT      .equ    284             ;   the values end here
+ST_Y          .equ    142             ; the status lines: y, the line
+ST_LINE       .equ    10
+ST_MAX        .equ    4               ;   lines shown (the older ones go)
+CODE_MAX      .equ    8               ; the letters of a room code
+JP_NONE       .equ    0               ; netphase: the page
+JP_CARD       .equ    1               ;   FIND PLAYERS: the card
+JP_TIME       .equ    2               ;   its network
+JP_CONNECT    .equ    3               ;   CONNECT
+JP_FIND       .equ    4               ;   the other player
+JP_RETRY      .equ    5               ;   a moment before the next CONNECT
+JP_SETUP      .equ    6               ;   player 1: the setup record
+JP_ERROR      .equ    7               ;   it failed (the lines say why)
 
               .extern _Dp, _g_player, _g_gametic, maketic, cmds
               .extern _g_resident, _g_consoleplayer, _g_playeringame
-              .extern _g_deathmatch, _g_netgame, _g_nomonsters, P_SwapTo, G_DeferedInitNew
+              .extern _g_deathmatch, _g_netgame, _g_nomonsters, P_SwapTo
               .extern I_Error, I_GetTime, prndindex, _g_psave, G_ExitLevel
-              .extern printf, iigs_adbq, iigs_adbqhead, iigs_adbqtail
+#ifdef NETGAME
+              .extern G_DeferedInitNewMap, _g_usergame, _g_menuactive, menutic
+              .extern D_StartTitle, M_StartControlPanel, M_DrawSkull
+              .extern I_MenuPalette, I_MenuPaletteBack, S_StartSound
+              .extern uiMain, uiWriteLine, uiLineWidth, MT_X, MT_Y, MT_P
+              .extern currentMenu, itemOn, menuversion, menuNum, menuX, menuY
+              .extern menuLine, menuPrevItem, itemLump, itemRoutine
+              .extern responderEventL, netGame, options, loadGame, saveGame
+              .extern quitDoom, key_menu_up, key_menu_down, key_menu_left
+              .extern key_menu_right, key_menu_enter, key_menu_escape
+              .extern key_menu_back, key_fire
+#endif
 
               .section znear, bss
               .public netmaketic, netslot
@@ -96,6 +153,20 @@ nettime:      .space  4               ; the card's TIME (0: no network yet)
 netflag:      .space  2               ; a TIME reply came
 nettries:     .space  2               ; the connects so far
 NT_T0:        .space  2
+netphase:     .space  2               ; the join (JP_*)
+hostlen:      .space  2               ; the host of CONNECT (hostbuf)
+statn:        .space  2               ; the status lines: their count,
+stat:         .space  (6 * ST_MAX)    ;   each a string, a number (0xffff:
+                                      ;   none) and a string (0: none)
+nm_ch:        .space  2               ; the key
+nm_setup:     .space  2               ; the setup record came
+NM_I:         .space  2
+NM_S:         .space  2
+NM_W:         .space  2
+NM_MODE:      .space  2
+NM_O:         .space  2
+NM_T:         .space  2
+NM_N:         .space  2
 netsent:      .space  4               ; the tics sent
 peerhave:     .space  4               ; the tics of the other player in
 netstate:     .space  2
@@ -112,6 +183,17 @@ NT_C:         .space  6               ; a command on its way to a save slot
 peercmds:     .space  (CMDS * 8)      ; the other player's commands, as cmds
 cons:         .space  (2 * CMDS * 2)  ; consistency[player][tic & (CMDS-1)]
 peercons:     .space  (CMDS * 2)      ; the consistency words that came
+hostbuf:      .space  64              ; the host of CONNECT: NETHOST, and
+                                      ;   with a WebSocket the room code
+
+#ifdef NETGAME
+              .section near, data     ; the page's choices
+nm_dm:        .word   1               ; GAME: 1 deathmatch, 0 cooperative
+nm_skill:     .word   CONST_SK_MEDIUM
+nm_map:       .word   1
+nm_mon:       .word   1               ; MONSTERS: 1 on
+nm_len:       .word   (nm_codeEnd - nm_code - 1) ; the room code's letters
+#endif
 
               .section cfar, rodata
 #ifdef NETGAME
@@ -119,21 +201,6 @@ hostStr:      .asciz  NETHOST
 hostEnd:
 HOSTLEN       .equ    hostEnd - hostStr - 1
 #endif
-msgCard:      .asciz  "I_NetInit: CoGS card in slot %i\n"
-msgNoNet:     .asciz  "I_NetInit: waiting for the card's network...\n"
-#if (NETFLAGS & 8)
-msgJoin:      .asciz  "I_NetInit: joining lobby.a2cogs.com...\n"
-#else
-msgJoin:      .asciz  "I_NetInit: joining the relay...\n"
-#endif
-msgFind:      .asciz  "Attempting to find all players...\n"
-msgRetry:     .asciz  "I_NetInit: connect failed (%i), retrying\n"
-msgFound:     .asciz  "Found all players.\n"
-errNoCard:    .asciz  "I_NetInit: no CoGS card in slots 1-7\n"
-errNoNet:     .asciz  "I_NetInit: the card has no network\n"
-errAbort:     .asciz  "I_NetInit: aborted\n"
-errTimeout:   .asciz  "I_NetInit: no other player came\n"
-errConnect:   .asciz  "I_NetInit: connect failed (%i)\n"
 errCard:      .asciz  "D_Net: the card reports an error (%i)\n"
 errClosed:    .asciz  "D_Net: the other player left (%i)\n"
 errSend:      .asciz  "D_Net: send failed (%i)\n"
@@ -142,125 +209,710 @@ errResident:  .asciz  "D_NetCmds: player %i resident\n"
 errCons:      .asciz  "consistency failure (%i should be %i) at tic %i\n"
 
 ;;; ---------------------------------------------------------------------------
-;;; void D_NetJoin(void): before the graphics start: the card (findCard),
-;;; its network (TIME, not 0), CONNECT to the relay (again after a
-;;; failure, JOIN_TRIES times), the player number and the go from it. The
-;;; progress goes on the startup text screen; Esc quits.
-;;; void D_NetStart(void): after D_NetJoin, instead of the title: both
-;;; players ready to be born, the game.
-;;; (Run once: in ProgCode, bank 5 with netcode, so its jsrs reach.)
+;;; The NETWORK GAME page (NETGAME). m_menu65.s calls in through three
+;;; hooks: D_NetMainMenu (M_StartControlPanel's end), D_NetDrawHook
+;;; (M_Drawer, before the items) and D_NetResponder (M_Responder), and
+;;; through the row's routine, D_NetMenuOpen. D_NetJoinTick is the join,
+;;; from D_NetUpdate. D_NetStart (AUTOJOIN) starts it all at the start.
+;;; (Run once or seldom: in ProgCode, bank 5 with netcode, so its jsrs
+;;; reach. The strings are here too, so one bank serves them all.)
 ;;; ---------------------------------------------------------------------------
-say           .macro  msg                   ; printf(msg, the value pushed)
-              lda     ##.word0 \msg
-              sta     dp:.tiny _Dp
-              lda     ##.word2 \msg
-              sta     dp:.tiny (_Dp+2)
-              jsl     long:printf
+status        .macro  s1, s2                ; a status line: the string, the
+              lda     ##.word0 \s1          ;   number in X (0xffff: none),
+              ldy     ##\s2                 ;   the string after it (0: none)
+              jsr     .kbank addLine
               .endm
 
 #ifdef NETGAME
               .section netstart, text
-              .public D_NetJoin, D_NetStart
-D_NetJoin:    jsr     .kbank findCard
-              bne     1$
-              lda     ##.word0 errNoCard
-              ldx     ##.word2 errNoCard
-              brl     error
-1$:           lda     .near netslot
-              pha
-              say     msgCard
+
+;;; D_NetMainMenu: uiMain (the last row: QUIT or END GAME), then NETWORK
+;;; GAME as the second row when no game is on; during a game the row is
+;;; out and the rows are the stock ones (the others' parent items follow).
+              .public D_NetMainMenu
+D_NetMainMenu:
+              jsl     long:uiMain
+              lda     .near _g_usergame
+              bne     2$
+              lda     ##6
+              sta     long:menuNum
+              ldx     ##0
+1$:           lda     long:rowLumps,x
+              sta     long:(itemLump+2),x
+              lda     long:rowRoutines,x
+              sta     long:(itemRoutine+2),x
+              inx
+              inx
+              cpx     ##10
+              bcc     1$
+              lda     ##2
+              sta     long:(menuPrevItem+MENU_OPTIONS)
+              lda     ##3
+              sta     long:(menuPrevItem+MENU_LOAD)
+              lda     ##4
+              sta     long:(menuPrevItem+MENU_SAVE)
+              rtl
+2$:           ldx     ##0
+3$:           lda     long:(rowLumps+2),x
+              sta     long:(itemLump+2),x
+              lda     long:(rowRoutines+2),x
+              sta     long:(itemRoutine+2),x
+              inx
+              inx
+              cpx     ##6
+              bcc     3$
+              lda     ##1
+              sta     long:(menuPrevItem+MENU_OPTIONS)
+              lda     ##2
+              sta     long:(menuPrevItem+MENU_LOAD)
+              lda     ##3
+              sta     long:(menuPrevItem+MENU_SAVE)
+              rtl
+rowLumps:     .word   L_NETGM, L_OPTION, L_LOADG, L_SAVEG, L_QUITG
+rowRoutines:  .word   .word0 netGame, .word0 options, .word0 loadGame
+              .word   .word0 saveGame, .word0 quitDoom
+
+;;; D_NetMenuOpen: the row's routine: the page, at its first row.
+              .public D_NetMenuOpen
+D_NetMenuOpen:
+              lda     ##MENU_NET
+              sta     .near currentMenu
+              stz     .near itemOn
+              lda     ##NM_ROWS
+              sta     long:(menuNum+MENU_NET)
+              lda     ##NM_X
+              sta     long:(menuX+MENU_NET)
+              lda     ##NM_Y
+              sta     long:(menuY+MENU_NET)
+              lda     ##NM_LINE
+              sta     long:(menuLine+MENU_NET)
+              stz     .near netphase
+              stz     .near statn
+              rtl
+
+;;; D_NetStart (AUTOJOIN): instead of the title: the title, the page, the
+;;; join.
+              .public D_NetStart
+D_NetStart:   jsl     long:D_StartTitle
+              jsl     long:M_StartControlPanel
+              jsl     long:D_NetMenuOpen
+              lda     ##R_FIND
+              sta     .near itemOn
+              lda     ##JP_CARD
+              sta     .near netphase
+              rtl
+
+;;; D_NetDrawHook: M_Drawer, after the message and before the items:
+;;; I_MenuPalette, and the page when it is the menu: the title, the rows
+;;; with their values, the status lines, the skull; then M_Drawer is
+;;; done (its return goes, ours is to its caller).
+              .public D_NetDrawHook
+D_NetDrawHook:
+              jsl     long:I_MenuPalette
+              lda     .near currentMenu
+              cmp     ##MENU_NET
+              beq     1$
+              rtl
+1$:           pei     dp:.tiny (_Dp+8)      ; (the saved scratch: the text)
+              pei     dp:.tiny (_Dp+10)
+              lda     ##20
+              sta     .near MT_Y
+              lda     ##.word0 strTitle
+              jsr     .kbank putCenter
+              stz     .near NM_I            ; the rows
+2$:           lda     .near NM_I
+              asl     a
+              asl     a
+              asl     a
+              asl     a
+              clc
+              adc     ##NM_Y
+              sta     .near MT_Y
+              lda     ##NM_X
+              sta     .near MT_X
+              lda     .near NM_I
+              asl     a
+              tax
+              lda     long:rowLabels,x
+              jsr     .kbank putStr
+              lda     .near NM_I
+              asl     a
+              tax
+              jsr     .kbank valueOf
+              beq     3$
+              jsr     .kbank putRight
+3$:           inc     .near NM_I
+              lda     .near NM_I
+              cmp     ##NM_ROWS
+              bcc     2$
+              stz     .near NM_I            ; the status lines
+4$:           lda     .near NM_I
+              cmp     .near statn
+              bcs     5$
+              asl     a                     ; y = ST_Y + 10 i
+              sta     .near NM_O
+              asl     a
+              asl     a
+              clc
+              adc     .near NM_O
+              clc
+              adc     ##ST_Y
+              sta     .near MT_Y
+              lda     .near NM_O            ; 6 i
+              asl     a
+              clc
+              adc     .near NM_O
+              tax
+              jsr     .kbank putStat
+              inc     .near NM_I
+              bra     4$
+5$:           jsl     long:M_DrawSkull
               pla
+              sta     dp:.tiny (_Dp+10)
+              pla
+              sta     dp:.tiny (_Dp+8)
+              tsc                           ; M_Drawer's return goes
+              clc
+              adc     ##3
+              tcs
+              rtl
+
+;;; valueOf: C = the value string of row X (x 2), 0 for none; Z from it.
+valueOf:      cpx     ##(2 * R_GAME)
+              bne     1$
+              lda     .near nm_dm
+              beq     11$
+              lda     ##.word0 strDM
+              rts
+11$:          lda     ##.word0 strCoop
+              rts
+1$:           cpx     ##(2 * R_SKILL)
+              bne     2$
+              lda     .near nm_skill
+              asl     a
+              tax
+              lda     long:skillNames,x
+              rts
+2$:           cpx     ##(2 * R_MAP)
+              bne     3$
+              lda     .near nm_map
+              clc
+              adc     ##'0'
+              sep     #0x20
+              sta     long:(mapbuf+3)
+              rep     #0x20
+              lda     ##.word0 mapbuf
+              rts
+3$:           cpx     ##(2 * R_MON)
+              bne     4$
+              lda     .near nm_mon
+              beq     31$
+              lda     ##.word0 strOn
+              rts
+31$:          lda     ##.word0 strOff
+              rts
+4$:           cpx     ##(2 * R_CODE)
+              bne     5$
+              lda     .near nm_len
+              beq     41$
+              lda     ##.word0 nm_code
+              rts
+41$:          lda     ##.word0 strPublic
+              rts
+5$:           lda     ##0
+              rts
+
+;;; putStr: the string C (this bank) at MT_X, MT_Y; MT_X past it.
+;;; strWidth: C = the width of the string C.
+;;; putRight: the string C ending at NM_RIGHT. putCenter: centered on 160.
+putStr:       sta     dp:.tiny (_Dp+8)
+              lda     ##.word2 strTitle
+              sta     dp:.tiny (_Dp+10)
+              stz     .near MT_P
+              jsl     long:uiWriteLine
+              rts
+strWidth:     sta     dp:.tiny (_Dp+8)
+              lda     ##.word2 strTitle
+              sta     dp:.tiny (_Dp+10)
+              stz     .near MT_P
+              jsl     long:uiLineWidth
+              rts
+putRight:     pha
+              jsr     .kbank strWidth
+              eor     ##0xffff              ; NM_RIGHT - the width
+              sec
+              adc     ##NM_RIGHT
+              sta     .near MT_X
+              pla
+              bra     putStr
+putCenter:    pha
+              jsr     .kbank strWidth
+              lsr     a
+              eor     ##0xffff
+              sec
+              adc     ##160
+              sta     .near MT_X
+              pla
+              bra     putStr
+
+;;; putStat: the status line at X (its offset in stat), centered: the
+;;; string, the number (not 0xffff) and the string after it (not 0).
+;;; statPieces does the three: measured (NM_MODE 0, into NM_W) or put.
+putStat:      stx     .near NM_S
+              lda     .near (stat+2),x
+              cmp     ##0xffff
+              beq     1$
+              jsr     .kbank toDec
+1$:           stz     .near NM_MODE
+              stz     .near NM_W
+              jsr     .kbank statPieces
+              lda     .near NM_W
+              lsr     a
+              eor     ##0xffff
+              sec
+              adc     ##160
+              sta     .near MT_X
+              inc     .near NM_MODE
+statPieces:   ldx     .near NM_S
+              lda     .near stat,x
+              jsr     .kbank piece
+              ldx     .near NM_S
+              lda     .near (stat+2),x
+              cmp     ##0xffff
+              beq     1$
+              lda     ##.word0 numbuf
+              jsr     .kbank piece
+1$:           ldx     .near NM_S
+              lda     .near (stat+4),x
+              beq     2$
+              jsr     .kbank piece
+2$:           rts
+piece:        ldy     .near NM_MODE
+              beq     1$
+              brl     putStr
+1$:           jsr     .kbank strWidth
+              clc
+              adc     .near NM_W
+              sta     .near NM_W
+              rts
+
+;;; toDec: numbuf = C (0 to 99) in decimal.
+toDec:        ldx     ##0
+1$:           cmp     ##10
+              bcc     2$
+              sbc     ##10
+              inx
+              bra     1$
+2$:           clc
+              adc     ##'0'
+              sta     .near NM_T            ; the ones
+              txa
+              beq     3$
+              clc
+              adc     ##'0'
+              sep     #0x20
+              sta     long:numbuf
+              lda     .near NM_T
+              sta     long:(numbuf+1)
+              lda     #0
+              sta     long:(numbuf+2)
+              rep     #0x20
+              rts
+3$:           sep     #0x20
+              lda     .near NM_T
+              sta     long:numbuf
+              lda     #0
+              sta     long:(numbuf+1)
+              rep     #0x20
+              rts
+
+;;; addLine: a status line: the string C, the number X (0xffff: none),
+;;; the string Y after it (0: none). The oldest goes when ST_MAX are up.
+;;; The page is drawn again (menuversion).
+addLine:      sta     .near NM_T
+              stx     .near NM_N
+              sty     .near NM_S
+              lda     .near statn
+              cmp     ##ST_MAX
+              bcc     2$
+              ldx     ##0
+1$:           lda     .near (stat+6),x
+              sta     .near stat,x
+              inx
+              inx
+              cpx     ##(6 * (ST_MAX - 1))
+              bcc     1$
+              lda     ##(ST_MAX - 1)
+              sta     .near statn
+2$:           lda     .near statn
+              asl     a
+              sta     .near NM_O
+              asl     a
+              clc
+              adc     .near NM_O
+              tax
+              lda     .near NM_T
+              sta     .near stat,x
+              lda     .near NM_N
+              sta     .near (stat+2),x
+              lda     .near NM_S
+              sta     .near (stat+4),x
+              inc     .near statn
+              inc     .near menuversion
+              rts
+
+;;; D_NetResponder: M_Responder's event (_Dp[0-3]): the page's keys when
+;;; it is the menu (carry set: eaten), else the menus' (responderEvent).
+;;; The page: up and down move, left, right and Return change a value
+;;; (Return on FIND PLAYERS starts the join), letters and digits go in
+;;; the room code and Delete takes one out, Esc goes back to the main
+;;; menu. A join or its error: Esc stops it (the socket closes with the
+;;; card's reset).
+              .public D_NetResponder
+D_NetResponder:
+              lda     .near currentMenu
+              cmp     ##MENU_NET
+              beq     1$
+              jsl     long:responderEventL
+              rtl
+1$:           lda     [.tiny _Dp]           ; key downs only
+              bne     rNo
+              ldy     ##EV_DATA1
+              lda     [.tiny _Dp],y
+              sta     .near nm_ch
+              lda     .near netphase
+              beq     rPage
+              lda     .near nm_ch           ; a join or its error: Esc
+              cmp     .near key_menu_escape
+              bne     rNo
+              lda     .near netphase
+              cmp     ##JP_ERROR
+              beq     2$
+              lda     .near netslot
+              beq     2$
               jsr     .kbank cardReset
-              jsl     long:I_GetTime        ; the network: TIME not 0
+2$:           stz     .near netphase
+              stz     .near statn
+              brl     rSwitch
+rNo:          clc
+              rtl
+rPage:        lda     .near nm_ch
+              cmp     .near key_menu_down
+              bne     1$
+              lda     .near itemOn          ; down: the next row, or the first
+              inc     a
+              cmp     ##NM_ROWS
+              bcc     11$
+              lda     ##0
+11$:          sta     .near itemOn
+              brl     rMove
+1$:           cmp     .near key_menu_up
+              bne     2$
+              lda     .near itemOn          ; up: the row before, or the last
+              bne     21$
+              lda     ##NM_ROWS
+21$:          dec     a
+              sta     .near itemOn
+              brl     rMove
+2$:           cmp     .near key_menu_left
+              bne     3$
+              lda     ##0xffff              ; left: the value before
+              bra     41$
+3$:           cmp     .near key_menu_right
+              bne     4$
+31$:          lda     ##1                   ; right: the next
+41$:          jsr     .kbank change
+              lda     ##CONST_SFX_STNMOV
+              brl     rYes
+4$:           cmp     .near key_menu_enter
+              bne     5$
+              lda     .near itemOn
+              cmp     ##R_FIND
+              bne     31$                   ; (a value row: as right)
+              lda     ##JP_CARD             ; FIND PLAYERS: the join
+              sta     .near netphase
+              stz     .near statn
+              lda     ##CONST_SFX_PISTOL
+              brl     rYes
+5$:           cmp     .near key_menu_back   ; Delete: a letter of the code
+              bne     6$
+              lda     .near itemOn
+              cmp     ##R_CODE
+              bne     9$
+              lda     .near nm_len
+              beq     9$
+              dec     a
+              sta     .near nm_len
+              tax
+              sep     #0x20
+              lda     #0
+              sta     long:nm_code,x
+              rep     #0x20
+              bra     rMove
+6$:           cmp     .near key_menu_escape
+              beq     9$
+              cmp     .near key_fire
+              beq     9$
+              lda     .near itemOn          ; a letter or a digit: the code
+              cmp     ##R_CODE
+              bne     rEat
+              lda     .near nm_len
+              cmp     ##CODE_MAX
+              bcs     rEat
+              lda     .near nm_ch
+              cmp     ##'0'
+              bcc     rEat
+              cmp     ##('9' + 1)
+              bcc     7$
+              cmp     ##'A'
+              bcc     rEat
+              cmp     ##('Z' + 1)
+              bcc     7$
+              cmp     ##'a'
+              bcc     rEat
+              cmp     ##('z' + 1)
+              bcs     rEat
+              sbc     ##('a' - 'A' - 1)     ; (carry clear) as upper case
+7$:           ldx     .near nm_len
+              sep     #0x20
+              sta     long:nm_code,x
+              lda     #0
+              sta     long:(nm_code+1),x
+              rep     #0x20
+              inc     .near nm_len
+              bra     rMove
+9$:           stz     .near currentMenu     ; back: the main menu, at the row
+              lda     ##1
+              sta     .near itemOn
+              bra     rSwitch
+rEat:         sec
+              rtl
+rMove:        lda     ##CONST_SFX_PSTOP
+              bra     rYes
+rSwitch:      lda     ##CONST_SFX_SWTCHX
+rYes:         stz     dp:.tiny _Dp          ; S_StartSound(NULL, C)
+              stz     dp:.tiny (_Dp+2)
+              jsl     long:S_StartSound
+              sec
+              rtl
+
+;;; change: the value of row itemOn, C = 1 the next, -1 the one before.
+change:       ldx     .near itemOn
+              cpx     ##R_GAME
+              bne     1$
+              lda     .near nm_dm
+              eor     ##1
+              sta     .near nm_dm
+              rts
+1$:           cpx     ##R_MON
+              bne     2$
+              lda     .near nm_mon
+              eor     ##1
+              sta     .near nm_mon
+              rts
+2$:           cpx     ##R_SKILL
+              bne     3$
+              clc
+              adc     .near nm_skill
+              bmi     9$
+              cmp     ##(CONST_SK_NIGHTMARE + 1)
+              bcs     9$
+              sta     .near nm_skill
+9$:           rts
+3$:           cpx     ##R_MAP
+              bne     9$
+              clc
+              adc     .near nm_map          ; 1 to 9, around
+              beq     4$
+              cmp     ##10
+              bcc     5$
+              lda     ##1
+              bra     5$
+4$:           lda     ##9
+5$:           sta     .near nm_map
+              rts
+
+;;; D_NetJoinTick: D_NetUpdate while a join is on: its next step
+;;; (netphase). Nothing blocks for long: the card is polled, the times
+;;; are I_GetTime's.
+              .public D_NetJoinTick
+D_NetJoinTick:
+              lda     .near netphase
+              asl     a
+              tax
+              jmp     (.kbank phases,x)
+phases:       .word   .word0 tickNone, .word0 tickCard, .word0 tickTime
+              .word   .word0 tickConnect, .word0 tickFind, .word0 tickRetry
+              .word   .word0 tickSetup, .word0 tickNone
+
+;;; The card: found, reset, asked for its TIME.
+tickCard:     jsr     .kbank findCard
+              beq     1$
+              ldx     .near netslot
+              status  strCard, 0
+              jsr     .kbank cardReset
+              jsl     long:I_GetTime
               sta     .near NT_T0
-              stz     .near nettries        ; (the message once)
-2$:           jsr     .kbank askTime
+              stz     .near nettries        ; (the no-network line once)
+              jsr     .kbank sendTime
+              lda     ##JP_TIME
+              sta     .near netphase
+              rts
+1$:           ldx     ##0xffff
+              status  errNoCard, 0
+toError:      lda     ##JP_ERROR
+              sta     .near netphase
+tickNone:     rts
+
+;;; Its network: TIME not 0 (asked again each 2 s, NET_WAIT s).
+tickTime:     jsr     .kbank pollRx
+              lda     .near netflag
+              beq     2$
               lda     .near nettime
               ora     .near (nettime+2)
-              bne     5$
-              lda     .near nettries
-              bne     3$
+              beq     1$
+              lda     ##JP_CONNECT
+              sta     .near netphase
+              stz     .near nettries
+              rts
+1$:           lda     .near nettries
+              bne     2$
               inc     .near nettries
-              say     msgNoNet
-3$:           jsl     long:I_GetTime
+              ldx     ##0xffff
+              status  strNoNet, 0
+2$:           jsl     long:I_GetTime
               sec
               sbc     .near NT_T0
               cmp     ##(NET_WAIT * CONST_TICRATE)
+              bcc     3$
+              ldx     ##0xffff
+              status  errNoNet, 0
+              brl     toError
+3$:           jsl     long:I_GetTime
+              sec
+              sbc     .near NT_T
+              cmp     ##(2 * CONST_TICRATE)
               bcc     4$
-              lda     ##.word0 errNoNet
-              ldx     ##.word2 errNoNet
-              brl     error
-4$:           lda     ##(2 * CONST_TICRATE) ; again in 2 s
-              jsr     .kbank pause
-              bra     2$
-5$:           say     msgJoin
-              stz     .near nettries
-6$:           stz     .near netstate        ; CONNECT: sock 0, flags, port, host
-              stz     .near rxstate
-              stz     .near recpos
-              jsr     .kbank drainRx
-              lda     ##OP_CONNECT
-              jsr     .kbank push8
-              lda     ##(5 + HOSTLEN)
-              jsr     .kbank push8
-              lda     ##0
-              jsr     .kbank push8
-              lda     ##0
-              jsr     .kbank push8
-              lda     ##NETFLAGS
-              jsr     .kbank push8
-              lda     ##(NETPORT & 0xff)
-              jsr     .kbank push8
-              lda     ##(NETPORT >> 8)
-              jsr     .kbank push8
-              lda     ##HOSTLEN
-              jsr     .kbank push8
-              ldx     ##0
-7$:           lda     long:hostStr,x
-              jsr     .kbank push8
-              inx
-              cpx     ##HOSTLEN
-              bcc     7$
-              say     msgFind
-              jsl     long:I_GetTime        ; the number and the go
+              jsr     .kbank sendTime
+4$:           rts
+
+;;; CONNECT to the relay (the lines once, not again for a retry).
+tickConnect:  lda     .near nettries
+              bne     1$
+              ldx     ##0xffff
+              status  strJoin, 0
+              ldx     ##0xffff
+              status  strFind, 0
+1$:           jsr     .kbank buildHost
+              jsr     .kbank sendConnect
+              jsl     long:I_GetTime
               sta     .near NT_T
-8$:           jsr     .kbank pollRx
+              lda     ##JP_FIND
+              sta     .near netphase
+              rts
+
+;;; The player number and the go (GO_WAIT s); a failed connect: again
+;;; after 3 s, JOIN_TRIES times.
+tickFind:     jsr     .kbank pollRx
               lda     .near netstate
               cmp     ##NS_GO
-              beq     12$
+              beq     go
               cmp     ##NS_FAILED
-              beq     10$
-              jsr     .kbank escPressed
-              bne     9$
+              beq     connFailed
               jsl     long:I_GetTime
               sec
               sbc     .near NT_T
               cmp     ##(GO_WAIT * CONST_TICRATE)
-              bcc     8$
-              lda     ##.word0 errTimeout
-              ldx     ##.word2 errTimeout
-              brl     error
-9$:           lda     ##.word0 errAbort
-              ldx     ##.word2 errAbort
-              brl     error
-10$:          inc     .near nettries        ; failed: again, JOIN_TRIES times
+              bcc     1$
+              ldx     ##0xffff
+              status  errTimeout, 0
+              brl     toError
+1$:           rts
+connFailed:   inc     .near nettries
               lda     .near nettries
               cmp     ##JOIN_TRIES
-              bcc     11$
-              lda     .near netfail
-              pha
-              lda     ##.word0 errConnect
-              ldx     ##.word2 errConnect
-              brl     error
-11$:          lda     .near netfail
-              pha
-              say     msgRetry
-              pla
-              lda     ##(3 * CONST_TICRATE)
-              jsr     .kbank pause
-              brl     6$
-12$:          say     msgFound
-              rtl
+              bcc     3$
+              ldx     .near netfail
+              status  strFailed, .word0 strParen
+              brl     toError
+3$:           ldx     .near netfail
+              status  strFailed, .word0 strRetrying
+              jsl     long:I_GetTime
+              sta     .near NT_T
+              lda     ##JP_RETRY
+              sta     .near netphase
+              rts
+tickRetry:    jsl     long:I_GetTime
+              sec
+              sbc     .near NT_T
+              cmp     ##(3 * CONST_TICRATE)
+              bcc     1$
+              lda     ##JP_CONNECT
+              sta     .near netphase
+1$:           rts
+
+;;; The go: player 0 sends the setup record (the game is his) and starts;
+;;; player 1 starts when it comes (setupRec, from recByte). The relay
+;;; closing on us meanwhile (the other player left) is a failed connect:
+;;; the join tries again like any other.
+go:           ldx     ##0xffff
+              status  strFound, 0
+              lda     .near _g_consoleplayer
+              bne     1$
+              jsr     .kbank sendSetup
+              bra     startGame
+1$:           lda     ##JP_SETUP
+              sta     .near netphase
+tickSetup:    jsr     .kbank pollRx
+              lda     .near netstate
+              cmp     ##NS_FAILED
+              beq     connFailed
+              lda     .near nm_setup
+              bne     startGame
+              rts
+
+;;; startGame: the net game: both players to be born (player 0 is
+;;; resident, player 1 saved), the tic counters from 0 (the two machines
+;;; count the same tics from here; the records go by them), a new game
+;;; of the page's choices at the next tic, the menu closed.
+startGame:    lda     ##1
+              sta     .near _g_netgame
+              sta     .near (_g_playeringame+2)
+              lda     .near nm_dm
+              sta     .near _g_deathmatch
+              lda     .near nm_mon
+              eor     ##1
+              sta     .near _g_nomonsters
+              sep     #0x20
+              ldx     ##(SIZEOF_PL - 1)
+1$:           stz     .near _g_player,x
+              lda     #0
+              sta     long:(_g_psave + SIZEOF_PL),x
+              dex
+              bpl     1$
+              rep     #0x20
+              lda     ##CONST_PST_REBORN
+              sta     .near (_g_player+OFS_PL_PLAYERSTATE)
+              sta     long:(_g_psave + SIZEOF_PL + OFS_PL_PLAYERSTATE)
+              lda     .near _g_consoleplayer
+              jsl     long:P_SwapTo
+              stz     .near netmaketic      ; (netsent and peerhave: 0 since
+              stz     .near maketic         ;   the connect)
+              stz     .near (maketic+2)
+              stz     .near _g_gametic
+              stz     .near (_g_gametic+2)
+              stz     .near menutic
+              ldx     .near nm_map
+              lda     .near nm_skill
+              jsl     long:G_DeferedInitNewMap
+              jsl     long:I_MenuPaletteBack ; (clearMenus)
+              stz     .near _g_menuactive
+              stz     .near itemOn
+              stz     .near currentMenu
+              inc     .near menuversion
+              stz     .near netphase
+              stz     .near statn
+              rts
 
 ;;; findCard: cardoff and netslot for the card, slots 7 to 1 (Z clear),
 ;;; or netslot 0 (Z set). The signature: ID $A2, VERSION not 0, STATUS not
@@ -304,9 +956,9 @@ cardReset:    ldx     .near cardoff
               jsr     .kbank pause
               jmp     .kbank drainRx
 
-;;; askTime: TIME to the card; nettime = its reply (0 without a reply
-;;; within 2 s, as without a network).
-askTime:      stz     .near netflag
+;;; sendTime: TIME to the card; its reply comes to nettime (timeByte,
+;;; netflag), 0 without a network.
+sendTime:     stz     .near netflag
               stz     .near nettime
               stz     .near (nettime+2)
               stz     .near rxstate
@@ -318,15 +970,7 @@ askTime:      stz     .near netflag
               jsr     .kbank push8
               jsl     long:I_GetTime
               sta     .near NT_T
-1$:           jsr     .kbank pollRx
-              lda     .near netflag
-              bne     2$
-              jsl     long:I_GetTime
-              sec
-              sbc     .near NT_T
-              cmp     ##(2 * CONST_TICRATE)
-              bcc     1$
-2$:           rts
+              rts
 
 ;;; pause: C tics go by.
 pause:        sta     .near NT_T
@@ -340,53 +984,162 @@ pause:        sta     .near NT_T
               bmi     1$
               rts
 
-;;; escPressed: Z clear when Esc went down since the last call (the raw
-;;; ADB ring of the interrupt, i_iigs65.s; the other keys are dropped).
-escPressed:   ldx     .near iigs_adbqtail
-1$:           cpx     .near iigs_adbqhead
-              beq     3$
-              lda     .near iigs_adbq,x     ; a key byte (bit 7: up)
-              and     ##0x00ff
-              inx
-              cpx     ##(ADBQ_MASK + 1)
-              bne     2$
+;;; buildHost: hostbuf, hostlen = NETHOST, and with a WebSocket the room
+;;; code after it (OPEN for none: the open room).
+buildHost:    sep     #0x20
               ldx     ##0
-2$:           cmp     ##ADB_ESCAPE
-              bne     1$
-              stx     .near iigs_adbqtail   ; (A = ADB_ESCAPE: Z clear)
-              rts
-3$:           stx     .near iigs_adbqtail
-              lda     ##0
+1$:           lda     long:hostStr,x
+              sta     long:hostbuf,x
+              inx
+              cpx     ##HOSTLEN
+              bcc     1$
+#if (NETFLAGS & 8)
+              rep     #0x20
+              lda     ##.word0 strOpen      ; (through _Dp: there is no long,y)
+              ldy     .near nm_len
+              beq     2$
+              lda     ##.word0 nm_code
+2$:           sta     dp:.tiny _Dp
+              lda     ##.word2 strOpen
+              sta     dp:.tiny (_Dp+2)
+              sep     #0x20
+              ldy     ##0
+3$:           lda     [.tiny _Dp],y
+              beq     4$
+              sta     long:hostbuf,x
+              inx
+              iny
+              bra     3$
+4$:
+#endif
+              rep     #0x20
+              stx     .near hostlen
               rts
 
-D_NetStart:   lda     ##1                   ; a two-player deathmatch
-              sta     .near _g_netgame
-              sta     .near _g_deathmatch
-#ifdef NOMONSTERS
-              sta     .near _g_nomonsters
-#endif
-              sta     .near (_g_playeringame+2)
-              sep     #0x20                 ; both players: a fresh struct,
-              ldx     ##(SIZEOF_PL - 1)     ;   to be born (player 0 is
-1$:           stz     .near _g_player,x     ;   resident, player 1 saved)
-              lda     #0
-              sta     long:(_g_psave + SIZEOF_PL),x
-              dex
-              bpl     1$
-              rep     #0x20
-              lda     ##CONST_PST_REBORN
-              sta     .near (_g_player+OFS_PL_PLAYERSTATE)
-              sta     long:(_g_psave + SIZEOF_PL + OFS_PL_PLAYERSTATE)
-              lda     .near _g_consoleplayer
-              jsl     long:P_SwapTo
+;;; sendConnect: the socket's state from nothing, CONNECT: sock 0, the
+;;; flags, the port, the host.
+sendConnect:  stz     .near netstate
+              stz     .near rxstate
+              stz     .near recpos
               stz     .near netsent
               stz     .near (netsent+2)
               stz     .near peerhave
               stz     .near (peerhave+2)
-              stz     .near netmaketic
-              lda     ##CONST_SK_MEDIUM
-              jsl     long:G_DeferedInitNew
-              rtl
+              stz     .near nm_setup
+              jsr     .kbank drainRx
+              lda     ##OP_CONNECT
+              jsr     .kbank push8
+              lda     .near hostlen
+              clc
+              adc     ##5
+              jsr     .kbank push8
+              lda     ##0
+              jsr     .kbank push8
+              lda     ##0
+              jsr     .kbank push8
+              lda     ##NETFLAGS
+              jsr     .kbank push8
+              lda     ##(NETPORT & 0xff)
+              jsr     .kbank push8
+              lda     ##(NETPORT >> 8)
+              jsr     .kbank push8
+              lda     .near hostlen
+              jsr     .kbank push8
+              ldx     ##0
+1$:           lda     long:hostbuf,x
+              jsr     .kbank push8
+              inx
+              cpx     .near hostlen
+              bcc     1$
+              rts
+
+;;; sendSetup: player 0's setup record to player 1: tic SETUP_TIC, the
+;;; skill, the map, the game, the monsters. setupRec: it came (recByte).
+sendSetup:    lda     ##OP_SEND
+              jsr     .kbank push8
+              lda     ##(1 + REC_SIZE)
+              jsr     .kbank push8
+              lda     ##0
+              jsr     .kbank push8
+              lda     ##0                   ; sock 0
+              jsr     .kbank push8
+              lda     ##(SETUP_TIC & 0xff)
+              jsr     .kbank push8
+              jsr     .kbank push8
+              lda     .near nm_skill
+              jsr     .kbank push8
+              lda     .near nm_map
+              jsr     .kbank push8
+              lda     .near nm_dm
+              jsr     .kbank push8
+              lda     .near nm_mon
+              jsr     .kbank push8
+              lda     ##0
+              jsr     .kbank push8
+              jsr     .kbank push8
+              jsr     .kbank push8
+              rts
+setupRec:     lda     .near (rec+2)
+              and     ##0x00ff
+              sta     .near nm_skill
+              lda     .near (rec+3)
+              and     ##0x00ff
+              sta     .near nm_map
+              lda     .near (rec+4)
+              and     ##0x00ff
+              sta     .near nm_dm
+              lda     .near (rec+5)
+              and     ##0x00ff
+              sta     .near nm_mon
+              inc     .near nm_setup
+              rts
+
+;;; The page's strings (and the buffers they are built in).
+strTitle:     .asciz  "NETWORK GAME"
+rowLabels:    .word   .word0 lblGame, .word0 lblSkill, .word0 lblMap
+              .word   .word0 lblMon, .word0 lblCode, .word0 lblFind
+lblGame:      .asciz  "GAME"
+lblSkill:     .asciz  "SKILL"
+lblMap:       .asciz  "MAP"
+lblMon:       .asciz  "MONSTERS"
+lblCode:      .asciz  "ROOM CODE"
+lblFind:      .asciz  "FIND PLAYERS"
+strDM:        .asciz  "DEATHMATCH"
+strCoop:      .asciz  "COOPERATIVE"
+strOn:        .asciz  "ON"
+strOff:       .asciz  "OFF"
+strPublic:    .asciz  "PUBLIC"
+skillNames:   .word   .word0 sk0, .word0 sk1, .word0 sk2, .word0 sk3, .word0 sk4
+sk0:          .asciz  "I'M TOO YOUNG TO DIE"
+sk1:          .asciz  "HEY, NOT TOO ROUGH"
+sk2:          .asciz  "HURT ME PLENTY"
+sk3:          .asciz  "ULTRA-VIOLENCE"
+sk4:          .asciz  "NIGHTMARE!"
+mapbuf:       .asciz  "E1M1"
+numbuf:       .space  4
+strOpen:      .asciz  "OPEN"
+#ifdef NETROOM
+nm_code:      .asciz  NETROOM               ; the room code (CODE_MAX letters)
+#else
+nm_code:      .byte   0
+#endif
+nm_codeEnd:
+              .space  (CODE_MAX - (nm_codeEnd - nm_code - 1))
+strCard:      .asciz  "COGS CARD IN SLOT "
+errNoCard:    .asciz  "NO COGS CARD IN SLOTS 1-7"
+strNoNet:     .asciz  "WAITING FOR THE CARD'S NETWORK..."
+errNoNet:     .asciz  "THE CARD HAS NO NETWORK"
+#if (NETFLAGS & 8)
+strJoin:      .asciz  "JOINING LOBBY.A2COGS.COM..."
+#else
+strJoin:      .asciz  "JOINING THE RELAY..."
+#endif
+strFind:      .asciz  "ATTEMPTING TO FIND ALL PLAYERS..."
+strFailed:    .asciz  "CONNECT FAILED ("
+strParen:     .asciz  ")"
+strRetrying:  .asciz  "), RETRYING"
+errTimeout:   .asciz  "NO OTHER PLAYER CAME"
+strFound:     .asciz  "FOUND ALL PLAYERS."
 #endif
 
               .section netcode, text ; Code5d only (iigs.scm)
@@ -399,6 +1152,12 @@ D_NetStart:   lda     ##1                   ; a two-player deathmatch
               .public D_NetUpdate
 D_NetUpdate:  lda     .near _g_netgame
               bne     1$
+#ifdef NETGAME
+              lda     .near netphase        ; a join on: its next step
+              beq     0$
+              jsr     .kbank D_NetJoinTick
+0$:
+#endif
               lda     .near maketic
               sta     .near netmaketic
               rtl
@@ -731,7 +1490,7 @@ connByte:     ldx     .near rxidx
               lda     ##NS_CONNECTED
               sta     .near netstate
               brl     payloadDone
-failed:       sta     .near netfail         ; D_NetJoin tries again
+failed:       sta     .near netfail         ; (the join tries again)
               lda     ##NS_FAILED
               sta     .near netstate
               brl     payloadDone
@@ -759,9 +1518,14 @@ ackByte:      ldx     .near rxidx
               brl     error
 
 ;;; errByte: EV_ERROR: sock, code, ...   closedByte: EV_CLOSED: sock, reason.
+;;; Before the game starts (the join: through the go and the setup
+;;; record) either is a failed connect, which the join retries; in the
+;;; game they end it.
 errByte:      ldx     .near rxidx
               cpx     ##2
               bne     done
+              ldx     .near _g_netgame
+              beq     failed
               pha
               lda     ##.word0 errCard
               ldx     ##.word2 errCard
@@ -769,9 +1533,8 @@ errByte:      ldx     .near rxidx
 closedByte:   ldx     .near rxidx
               cpx     ##2
               bne     done
-              ldx     .near netstate
-              cpx     ##NS_GO
-              bne     failed
+              ldx     .near _g_netgame
+              beq     failed
               pha
               lda     ##.word0 errClosed
               ldx     ##.word2 errClosed
@@ -801,7 +1564,8 @@ dataByte:     ldx     .near rxidx
               sta     .near netstate
               brl     payloadDone
 
-;;; recByte: a byte of a record: tic (2), command (5), consistency (2).
+;;; recByte: a byte of a record: tic (2), command (5), consistency (2);
+;;; tic SETUP_TIC: player 0's setup record (setupRec).
 recByte:      ldx     .near recpos
               sep     #0x20
               sta     .near rec,x
@@ -812,6 +1576,13 @@ recByte:      ldx     .near recpos
               bcc     done
               stz     .near recpos
               lda     .near rec             ; the tic we wait for
+#ifdef NETGAME
+              cmp     ##SETUP_TIC           ; (or the setup record)
+              bne     0$
+              jsr     .kbank setupRec
+              bra     done
+0$:
+#endif
               cmp     .near peerhave
               beq     1$
               pei     dp:.tiny _Dp

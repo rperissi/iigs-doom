@@ -149,6 +149,7 @@ starttime:    .space  4
 totalleveltimes: .space 4
 gamekeydown:  .space  (2 * NUMKEYS)
 d_skill:      .space  2
+d_map:        .space  2               ; (G_DeferedInitNewMap)
 savegameslot: .space  2               ; (a byte)
 secretexit:   .space  2
 defdemoname:  .space  4
@@ -1125,14 +1126,18 @@ doSaveGame:   lda     .near savegameslot
               bcc     3$
               jsl     long:G_UpdateSaveGameStrings
               rts
-              .space  12                    ; Keep later farcode at its slots.
+              .space  6                     ; Keep later farcode at its slots.
 
 ;;; ---------------------------------------------------------------------------
-;;; void G_DeferedInitNew(skill_t skill)  In: C. A new game at the next tic.
+;;; void G_DeferedInitNew(skill_t skill)  In: C. A new game at the next tic,
+;;; from map 1. G_DeferedInitNewMap: from map X (the net game, d_net65.s).
 ;;; void G_ReloadDefaults(void): no demo.
 ;;; ---------------------------------------------------------------------------
-              .public G_DeferedInitNew, G_ReloadDefaults
+              .public G_DeferedInitNew, G_DeferedInitNewMap, G_ReloadDefaults
 G_DeferedInitNew:
+              ldx     ##1
+G_DeferedInitNewMap:
+              stx     .near d_map
               sta     .near d_skill
               lda     ##GA_NEWGAME
               sta     .near _g_gameaction
@@ -1144,7 +1149,7 @@ G_ReloadDefaults:
 
 ;;; doNewGame: G_DoNewGame: a new game of d_skill from map 1.
 doNewGame:    jsl     long:G_ReloadDefaults
-              lda     ##1
+              lda     .near d_map
               sta     dp:.tiny _Dp
               lda     .near d_skill
               jsr     .kbank initNew

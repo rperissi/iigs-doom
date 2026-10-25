@@ -3,15 +3,19 @@
 # emulated CoGS cards (the MAME of reference/webifi-mame with the cogs
 # slot device) and the relay tools/dmrelay.py on localhost.
 #
-# Build first: make NETGAME=1 (the game finds the card in any slot, the relay port
+# Build first: make NETGAME=1 AUTOJOIN=1 (the game opens its NETWORK GAME
+# page and starts the join itself; the card in any slot, the relay port
 # 5100). The disks of build/ go to build/dm/seatA and seatB, each machine
 # boots its copy (tools/probe.lua swaps the disks on the loader's prompt)
-# and runs to game tic TICS (default 300), then dumps the state of both
+# and runs to game tic TICS (default 300; the net game counts its tics
+# from 0 when it starts, PROBE_TICGATE), then dumps the state of both
 # players and the random index; tools/dmcmp.py compares the two dumps.
 # Seat A walks forward and fires, seat B turns, from PROBE_TICPRESS (the
 # emulated keys by MAME field name: "w  W" forward, Control fire, "Left
 # Arrow" and "Right Arrow" turn, "a  A" and "d  D" strafe, Space use).
-# KEYS_A / KEYS_B override them (TIC:KEY:TICS lists).
+# KEYS_A / KEYS_B override them (TIC:KEY:TICS lists). PRESS_A / PRESS_B
+# are keys by emulated seconds (PROBE_PRESS SECONDS:KEY:HOLD lists), for
+# the NETWORK GAME page before the join (the boot takes some 220 s).
 #
 # Env: MAME (the binary), ZIP (cfg/zipN, default 7), TICS, RUN (the
 # emulated bound, default 600), KEYS_A, KEYS_B, PORT, COOP_STARTS (below),
@@ -24,10 +28,10 @@
 # battery RAM, the image served to the emulated card by a local range
 # share on CARDPORT, default 8131), as the players will from the catalog.
 # SLOTA / SLOTB pick the slots (default 5 and 7 then, 3 otherwise).
-# LOBBY=1: the build was make NETGAME=1 LOBBY=1 [ROOM=...] and the two
-# machines meet in the lobby's Pair room over wss (the emulated card of
-# cogs-1.36 does the WebSocket); no local relay is started. The room code
-# is in the build, so one run per code at a time.
+# LOBBY=1: the build was make NETGAME=1 LOBBY=1 ROOM=CODE AUTOJOIN=1 and
+# the two machines meet in the lobby's Pair room over wss (the emulated
+# card of cogs-1.36 does the WebSocket); no local relay is started. The
+# room code is in the build, so one run per code at a time.
 cd "$(dirname "$0")/.." || exit 1
 MAME=${MAME:-../webifi-mame/cogs}
 ZIP=${ZIP:-7}
@@ -36,12 +40,13 @@ RUN=${RUN:-600}
 PORT=${PORT:-5100}
 WORK=build/dm
 [ -x "$MAME" ] || { echo "no mame at $MAME (MAME=...)" >&2; exit 1; }
-[ -f build/disk1.po ] || { echo "make NETGAME=1 first" >&2; exit 1; }
+[ -f build/disk1.po ] || { echo "make NETGAME=1 AUTOJOIN=1 first" >&2; exit 1; }
 if ! grep -q "D_NetStart" build/doom.lst 2>/dev/null; then
-    echo "build/doom.lst has no D_NetStart: make NETGAME=1 first" >&2; exit 1
+    echo "build/doom.lst has no D_NetStart: make NETGAME=1 AUTOJOIN=1 first" >&2; exit 1
 fi
 
 G=$(python3 tools/symaddr.py build/doom.elf _g_gametic)
+NG=$(python3 tools/symaddr.py build/doom.elf _g_netgame)   # the tic events: the net game only
 sym() { python3 tools/symaddr.py build/doom.elf "$1"; }
 DUMP="${DUMP_EXTRA:+$DUMP_EXTRA,}$(sym _g_gametic):4,$(sym prndindex):2,$(sym _g_frags):4,$(sym _g_consoleplayer):2,$(sym _g_player):9b,$(sym _g_psave):136"
 # A: W from tic 40 for 60 tics, Control at 70 for 10, W at 150 for 60.
@@ -88,8 +93,8 @@ if [ -n "$CARDBOOT" ]; then
 fi
 if [ -n "$LOBBY" ]; then
     strings build/doom.elf | grep -q "lobby.a2cogs.com" || {
-        echo "LOBBY=1 but the build has no lobby host: make NETGAME=1 LOBBY=1 first" >&2; exit 1; }
-    echo "lobby: $(strings build/doom.elf | grep -o 'lobby.a2cogs.com/ws/pair?r=[A-Za-z0-9-]*' | head -1)" > "$WORK/relay.log"
+        echo "LOBBY=1 but the build has no lobby host: make NETGAME=1 LOBBY=1 AUTOJOIN=1 first" >&2; exit 1; }
+    echo "lobby: $(strings build/doom.elf | grep -o 'lobby.a2cogs.com/ws/pair?r=' | head -1)$(strings build/doom.elf | grep -A1 '^OPEN$' | tail -1)" > "$WORK/relay.log"
     RELAY=
 else
     python3 tools/dmrelay.py --port "$PORT" --log "$WORK/relay.log" --seconds 300 &
@@ -100,6 +105,7 @@ fi
 ROOT=$(pwd)
 seat() {
     s=$1; keys=$2; dir=$WORK/seat$s
+    eval press=\${PRESS_$s}
     if [ -n "$CARDBOOT" ]; then dflt=$([ "$s" = A ] && echo 5 || echo 7); else dflt=3; fi
     eval slot=\${SLOT$s:-$dflt}                     # SLOTA / SLOTB: the card's slot
     mkdir -p "$dir/build" "$dir/snap"
@@ -120,9 +126,9 @@ seat() {
     ( cd "$dir" && { [ -n "$volurl" ] && export COGS_VOL_URL="$volurl"; } ; \
       SDL_VIDEO_DRIVER=dummy SDL_VIDEODRIVER=dummy SDL_MAC_BACKGROUND_APP=1 \
       COGS_EMU_NVRAM="$ROOT/$dir/cogs_nv" \
-      PROBE_DISKS="$disks" PROBE_SECONDS="$RUN" PROBE_GAMETIC="$G" \
+      PROBE_DISKS="$disks" PROBE_SECONDS="$RUN" PROBE_GAMETIC="$G" PROBE_TICGATE="$NG" \
       PROBE_TICSHR="$TICS" PROBE_TICEXIT=1 PROBE_TEXTEXIT=1 PROBE_DUMP="$DUMP" \
-      PROBE_TICPRESS="$keys" PROBE_POKE="$POKE" PROBE_TICPOKE="$TICPOKE" \
+      PROBE_TICPRESS="$keys" PROBE_PRESS="$press" PROBE_POKE="$POKE" PROBE_TICPOKE="$TICPOKE" \
       PROBE_EXTRA="${PROBE_EXTRA:-/dev/null}" \
       "$ROOT/$MAME" apple2gs -rompath "$ROOT/roms" -ramsize 8M -sl$slot cogs \
       $media -window -nomaximize -video none -sound none \

@@ -30,6 +30,10 @@
 --                  time of PROBE_PHASE
 --   PROBE_GAMETIC  ADDR (hex) of _g_gametic, for PROBE_TICSHR
 --   PROBE_TICEXIT  set: exit after the last back buffer of PROBE_TICSHR
+--   PROBE_TICGATE  ADDR (hex) of a word: the tic events (PROBE_TICSHR,
+--                  PROBE_TICPOKE, PROBE_TICPRESS, PROBE_TICKEY) count
+--                  only while it is not 0 (_g_netgame: the net game's
+--                  tics, which count from 0 again when it starts)
 --                  (with the PROBE_DUMP memory)
 --   PROBE_TEXTEXIT set: print the rows of the 40 column text page when the
 --                  run ends (an I_Error message)
@@ -115,6 +119,7 @@ end
 local gameticAddr = os.getenv("PROBE_GAMETIC") and tonumber(os.getenv("PROBE_GAMETIC"), 16)
 local ticShr = {}
 local ticExit = os.getenv("PROBE_TICEXIT") ~= nil
+local ticGate = os.getenv("PROBE_TICGATE") and tonumber(os.getenv("PROBE_TICGATE"), 16)
 local ticTap = nil
 for t in string.gmatch(os.getenv("PROBE_TICSHR") or "", "[^,]+") do
 	table.insert(ticShr, tonumber(t))
@@ -482,6 +487,7 @@ emu.register_frame_done(function()
 				-- (a 16 bit inc writes the high byte first: as the low
 				-- byte wraps, the high one read is the new one)
 				if (data & 0xff) == 0 then old = old - 0x100 end
+				if ticGate and space:read_u16(ticGate) == 0 then return end
 				-- PROBE_TICPOKE: a word written as tic N ends
 				for i = #ticPokes, 1, -1 do
 					if old >= ticPokes[i][1] then

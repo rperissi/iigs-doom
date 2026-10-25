@@ -469,6 +469,82 @@ def text_patch(wad, text):
     return struct.pack('<hhhh', width, height, 0, 0) + struct.pack(f'<{width}I', *offsets) + bytes(body)
 
 
+# The big red menu font exists only as whole words in the IWAD (M_NGAME,
+# M_OPTION, ...). Its letters touch at their dark outlines but not at
+# their red fills, so a word splits into letters at the columns without
+# fill; a letter is its fill run plus one outline column each side, over
+# the full height (every word patch has the same 15 rows and baseline).
+# Letters of a word overlap by that one outline column; a space is 7
+# empty columns between cells, as in "New Game".
+BIG_FILL = range(0xb0, 0xbe)
+BIG_GLYPHS = {                          # letter: (word patch, run index)
+    'N': ('M_NGAME', 0), 'e': ('M_NGAME', 1), 'w': ('M_NGAME', 2),
+    'G': ('M_NGAME', 3), 'a': ('M_NGAME', 4), 'm': ('M_NGAME', 5),
+    'O': ('M_OPTION', 0), 'p': ('M_OPTION', 1), 't': ('M_OPTION', 2),
+    'i': ('M_OPTION', 3), 'o': ('M_OPTION', 4), 'n': ('M_OPTION', 5),
+    's': ('M_OPTION', 6),
+    'H': ('M_HURT', 0), 'u': ('M_HURT', 1), 'r': ('M_HURT', 2),
+    'l': ('M_HURT', 7), 'y': ('M_HURT', 11),
+    'C': ('M_SKILL', 0), 'h': ('M_SKILL', 1), 'S': ('M_SKILL', 6),
+    'k': ('M_SKILL', 7), 'L': ('M_SKILL', 11), 'v': ('M_SKILL', 13),
+}
+
+
+def big_glyph(wad, ch, cache={}):
+    """The columns (full height) of one big-font letter: fill run plus the
+    outline column on each side."""
+    name, idx = BIG_GLYPHS[ch]
+    if name not in cache:
+        w, h, img = decode_patch(wad.get(name))
+        fill = [any(img[y][x] is not None and img[y][x] in BIG_FILL for y in range(h))
+                for x in range(w)]
+        runs, x = [], 0
+        while x < w:
+            if fill[x]:
+                start = x
+                while x < w and fill[x]:
+                    x += 1
+                runs.append((start, x - 1))
+            else:
+                x += 1
+        cache[name] = (h, img, runs)
+    h, img, runs = cache[name]
+    a, b = runs[idx]
+    return h, [[img[y][x] for y in range(h)] for x in range(a - 1, b + 2)]
+
+
+def big_text_patch(wad, text):
+    """A menu patch spelling text in the big red font (see BIG_GLYPHS)."""
+    cols, height = [], 0
+    for ch in text:
+        if ch == ' ':
+            cols += [None] * 7
+            continue
+        h, glyph = big_glyph(wad, ch)
+        height = max(height, h)
+        if cols and cols[-1] is not None:
+            # the shared outline column: either letter's pixels
+            last = cols.pop()
+            glyph[0] = [p if p is not None else q for p, q in zip(glyph[0], last)]
+        cols += glyph
+    width = len(cols)
+    body, offsets = bytearray(), []
+    for col in cols:
+        offsets.append(8 + 4 * width + len(body))
+        col = col or [None] * height
+        y = 0
+        while y < height:
+            if col[y] is None:
+                y += 1
+                continue
+            start = y
+            while y < height and col[y] is not None:
+                y += 1
+            body += bytes([start, y - start, 0]) + bytes(col[start:y]) + b'\0'
+        body += b'\xff'
+    return struct.pack('<hhhh', width, height, 0, 0) + struct.pack(f'<{width}I', *offsets) + bytes(body)
+
+
 # --------------------------------------------------------------------------
 # Lump removal
 
@@ -771,6 +847,8 @@ def main():
     wad.add('M_MSPEED', text_patch(wad, 'MOUSE SPEED'))
     wad.add('M_MMOVE', text_patch(wad, 'MOUSE MOVE'))
     wad.add('M_CTRLS', text_patch(wad, 'KEY SETUP'))
+    if args.netthings:
+        wad.add('M_NETGM', big_text_patch(wad, 'Network Game'))   # the main menu's row
     wad.add('CREDITS', CREDITS.encode('ascii'))
     if args.layout == 320:
         # The status bar background becomes a raw 320x32 picture.

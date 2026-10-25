@@ -8,7 +8,7 @@
 # fires, Space uses. MAME takes Esc for itself (quit), so leave the Doom
 # menu alone; Cmd-Q the window to stop a seat.
 #
-# Build first: make NETGAME=1 LOBBY=1 ROOM=CODE (the two meet in the
+# Build first: make NETGAME=1 LOBBY=1 ROOM=CODE AUTOJOIN=1 (the two meet in the
 # lobby's Pair room; LOBBY= in the env uses the local relay of dm.sh
 # instead, with the matching make NETGAME=1 build).
 # Env: MAME (the binary), ZIP (cfg/zipN, default 7), DEMO, KEYS_A, KEYS_B,
@@ -23,11 +23,12 @@ PORT=${PORT:-5100}
 LOBBY=${LOBBY-1}
 WORK=build/dmshow
 [ -x "$MAME" ] || { echo "no mame at $MAME (MAME=...)" >&2; exit 1; }
-[ -f build/disk1.po ] || { echo "make NETGAME=1 LOBBY=1 first" >&2; exit 1; }
+[ -f build/disk1.po ] || { echo "make NETGAME=1 LOBBY=1 AUTOJOIN=1 first" >&2; exit 1; }
 grep -q "D_NetStart" build/doom.lst 2>/dev/null || {
-    echo "build/doom.lst has no D_NetStart: make NETGAME=1 LOBBY=1 first" >&2; exit 1; }
+    echo "build/doom.lst has no D_NetStart: make NETGAME=1 LOBBY=1 AUTOJOIN=1 first" >&2; exit 1; }
 
 G=$(python3 tools/symaddr.py build/doom.elf _g_gametic)
+NG=$(python3 tools/symaddr.py build/doom.elf _g_netgame)   # the tic events: the net game only
 if [ -n "$DEMO" ]; then
     KEYS_A=${KEYS_A-40:w  W:60,70:Control:10,150:w  W:60}
     KEYS_B=${KEYS_B-40:Right Arrow:20,120:Left Arrow:20,160:Control:10}
@@ -77,7 +78,7 @@ seat() {
     ( cd "$dir" && { [ -n "$volurl" ] && export COGS_VOL_URL="$volurl"; } ; \
       SDL_VIDEO_WINDOW_POS="$pos" \
       COGS_EMU_NVRAM="$ROOT/$dir/cogs_nv" \
-      PROBE_DISKS="$disks" PROBE_SECONDS=0 PROBE_GAMETIC="$G" PROBE_FASTLOAD=1 \
+      PROBE_DISKS="$disks" PROBE_SECONDS=0 PROBE_GAMETIC="$G" PROBE_TICGATE="$NG" PROBE_FASTLOAD=1 \
       PROBE_TICPRESS="$keys" \
       "$ROOT/$MAME" apple2gs -rompath "$ROOT/roms" -ramsize 8M -sl$slot cogs \
       $media -window -nomaximize -skip_gameinfo \

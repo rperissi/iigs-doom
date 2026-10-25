@@ -88,12 +88,13 @@ _g_fps_show:  .space  2
 _g_fps_framerate: .space 2
               .public maketic
               .extern D_NetUpdate, netmaketic
-#ifdef NETGAME
-              .extern D_NetJoin, D_NetStart
+#ifdef AUTOJOIN
+              .extern D_NetStart
 #endif
 maketic:      .space  4               ; the tic commands made
 lastmadetic:  .space  4
 #ifdef NETGAME
+              .public menutic
 menutic:      .space  2               ; the tics M_Ticker has seen (the
                                       ;   net game's menu pauses nothing)
 #endif
@@ -202,10 +203,6 @@ D_DoomMain:   lda     dp:.tiny _Dp
               jsl     long:ST_Init
               jsl     long:uiLoadSettings  ; Settings and the view selector.
               stz     .near _g_fps_show
-#ifdef NETGAME
-              jsl     long:D_NetJoin        ; the card, the relay, the other
-                                            ;   player (d_net65.s), in text
-#endif
               jsl     long:I_InitGraphics
               lda     .near timedemo        ; a timedemo: that demo, one tic
               ora     .near (timedemo+2)    ;   for each frame, then quit
@@ -221,9 +218,9 @@ D_DoomMain:   lda     dp:.tiny _Dp
               lda     ##1
               sta     .near _g_singledemo
               brl     doomLoop
-#ifdef NETGAME
-1$:           jsl     long:D_NetStart       ; else the net game (d_net65.s)
-#else
+#ifdef AUTOJOIN
+1$:           jsl     long:D_NetStart       ; else the net game's join
+#else                                       ;   (d_net65.s, the bench)
 1$:           jsl     long:D_StartTitle     ; else the title and demo loop
 #endif
               brl     doomLoop

@@ -45,6 +45,15 @@
               .extern changeSolid, solidOn, changeGrates, grateMode, wallOptionText
               .extern uiSolid, uiGrates
               .public menuNum
+#ifdef NETGAME
+              ;; The net menu (d_net65.s, bank 5) drives the menu through
+              ;; these; its code hangs on three same-size hooks below.
+              .extern D_NetMainMenu, D_NetDrawHook, D_NetResponder, D_NetMenuOpen
+              .public currentMenu, itemOn, menuversion, menuX, menuY, menuLine, menuPrevItem
+              .public itemLump, itemRoutine, uiMain, newGame, options, loadGame
+              .public saveGame, quitDoom, uiWriteLine, uiLineWidth, MT_X, MT_Y, MT_P, MT_W
+              .public LUMPS
+#endif
 
 PL            .equ    _g_player
 EV_DATA1      .equ    2               ; event_t (type 0: ev_keydown)
@@ -104,7 +113,12 @@ L_MSPEED      .equ    60
 L_MMOVE       .equ    62
 L_CTRLS       .equ    64
 L_SAVEG       .equ    66
+#ifdef NETGAME
+L_NETGM       .equ    68              ; M_NETGM: the main menu's NETWORK GAME
+NUM_LUMPS     .equ    35
+#else
 NUM_LUMPS     .equ    34
+#endif
 
               .section near, data
               .public showMessages, iigs_mouseon, iigs_mousespeed, iigs_mousemove
@@ -220,6 +234,10 @@ lumpNames:    .ascii  "M_DOOM"                    ; 8 bytes each
               .byte   0
               .ascii  "M_SAVEG"
               .byte   0
+#ifdef NETGAME
+              .ascii  "M_NETGM"
+              .byte   0
+#endif
 msgNightmare: .ascii  "Are you sure? This skill level\n"
               .ascii  "isn't even remotely fair.\n\n"
               .asciz  "Press Y or N."
@@ -586,7 +604,18 @@ itemRoutine:
               .word   .word0 changeMouseMove
               .word   .word0 controls
               .word   .word0 changeJ13
+#ifdef NETGAME
+              .public netGame
+netGame:      jsl     long:D_NetMenuOpen    ; the NETWORK GAME row (in-bank
+              rts                           ;   entry for itemRoutine)
+              .public responderEventL
+responderEventL:
+              jsr     .kbank responderEvent ; D_NetResponder's way back in
+              rtl
+              .space  3
+#else
               .space  12                    ; Keep later entries fixed; menuDraw is in j13cold.
+#endif
 
 ;;; ---------------------------------------------------------------------------
 ;;; void M_Init(void): the main menu, no message; the lumps of the patches
@@ -702,7 +731,11 @@ M_StartControlPanel:
               inc     .near _g_menuactive
               stz     .near currentMenu     ; MENU_MAIN
               inc     .near menuversion     ; drawn: also when G_Responder
+#ifdef NETGAME
+1$:           jmp     long:D_NetMainMenu    ; (uiMain, then NETWORK GAME in)
+#else
 1$:           jmp     long:uiMain           ; Title/demo has no END GAME.
+#endif
 
 ;;; ---------------------------------------------------------------------------
 ;;; uint16_t M_DrawVersion(void), M_SkullVersion(void): the versions of the
@@ -762,7 +795,11 @@ M_Responder:  lda     .near currentMenu     ; the state before
               sta     .near MR_ACTIVE
               lda     .near messageToPrint
               sta     .near MR_MSG
+#ifdef NETGAME
+              jsl     long:D_NetResponder   ; (the net menu's keys, or
+#else                                       ;   responderEventL below)
               jsr     .kbank responderEvent
+#endif
               bcs     1$
               lda     ##0
               rtl
@@ -1129,7 +1166,11 @@ M_Drawer:     lda     .near messageToPrint
 menu:         lda     .near _g_menuactive
               bne     1$
               rtl
-1$:           jsl     long:I_MenuPalette
+#ifdef NETGAME
+1$:           jsl     long:D_NetDrawHook    ; (I_MenuPalette; the net menu
+#else                                       ;   draws itself and returns to
+1$:           jsl     long:I_MenuPalette    ;   our caller)
+#endif
               ldx     .near currentMenu
               jsr     (.kbank menuDraw,x)
               ldx     .near currentMenu     ; the items
