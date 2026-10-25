@@ -206,11 +206,15 @@
             (section (hotdraw #x050b00)))
     (memory Code5c (address (#x051a1b . #x051fff))
             (section coldcode))
-    (memory Code5d (address (#x052000 . #x0523ff))
+    ;; The per-tic net code (src/iigs/d_net65.s netcode): bank 5 with the
+    ;; rest of the net code (netstart, netpage), so its jsrs reach.
+    ;; Between frames, so no replay slot matters. $0600 since 2026-10-25
+    ;; (was $0400, 0x1d bytes free).
+    (memory Code5d (address (#x052000 . #x0525ff))
             (section netcode logiccode))
     ;; The automap (src/iigs/am_map65.s): the overlay runs it before the
     ;; replay, so it stays out of the replay's slots $0900-$1FFF.
-    (memory AmCode (address (#x052400 . #x053dff))
+    (memory AmCode (address (#x052600 . #x053dff))
             (section amcode))
     (memory Code5d2 (address (#x053e00 . #x053fff))
             (section coldcode))
@@ -226,6 +230,8 @@
     ;; Load progress and the title wipe (src/iigs/w_level65.s). The loader's
     ;; own run ends at onecold ($05EC00), so this sits in the free tail of
     ;; the same bank: the decoder's jsr still reaches it.
+    ;; netstart (d_net65.s): the join, the names, the score, the strings;
+    ;; the page's own code is netpage in NetPage below.
     (memory ProgCode (address (#x05753e . #x0588ff))
             (section progcode netstart))
     (memory Code5g (address (#x058900 . #x05927f))
@@ -261,8 +267,13 @@
     ;; The level loader (src/iigs/w_level65.s): cold, after the rest. The
     ;; speed test of the first view size (src/iigs/m_speed65.s) runs once at
     ;; boot and never in a frame.
-    (memory LvlCode (address (#x05dc00 . #x05ffff))
+    (memory LvlCode (address (#x05dc00 . #x05f7ff))
             (section lvlcode (onecold #x05ec00) (tintcode #x05f100) (speedcode #x05f400)))
+    ;; The NETWORK GAME page (d_net65.s netpage: the menu row, the page's
+    ;; rows and responder) in the free tail of bank 5 after speedcode
+    ;; (ends $05F70A). Menu time only. Empty in the stock build.
+    (memory NetPage (address (#x05f800 . #x05ffff))
+            (section netpage))
     (block stack (size #x3500))
     (base-address _DirectPageStart DirectPage 0)
     (base-address _NearBaseAddress NearData 0)

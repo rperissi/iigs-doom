@@ -222,8 +222,11 @@ errCons:      .asciz  "consistency failure (%i should be %i) at tic %i\n"
 ;;; (M_Drawer, before the items) and D_NetResponder (M_Responder), and
 ;;; through the row's routine, D_NetMenuOpen. D_NetJoinTick is the join,
 ;;; from D_NetUpdate. D_NetStart (AUTOJOIN) starts it all at the start.
-;;; (Run once or seldom: in ProgCode, bank 5 with netcode, so its jsrs
-;;; reach. The strings are here too, so one bank serves them all.)
+;;; (Run once or seldom, all in bank 5 with netcode so the jsrs reach:
+;;; the page itself, netpage, in NetPage at the tail of the bank, the
+;;; join, the names and the score, netstart, in ProgCode. The strings are
+;;; in netstart too, so one bank serves them all; strPtr takes the bank
+;;; of strTitle.)
 ;;; ---------------------------------------------------------------------------
 status        .macro  s1, s2                ; a status line: the string, the
               lda     ##.word0 \s1          ;   number in X (0xffff: none),
@@ -232,7 +235,7 @@ status        .macro  s1, s2                ; a status line: the string, the
               .endm
 
 #ifdef NETGAME
-              .section netstart, text
+              .section netpage, text  ; NetPage only (iigs.scm)
 
 ;;; D_NetMainMenu: uiMain (the last row: QUIT or END GAME), then NETWORK
 ;;; GAME as the second row when no game is on; during a game the row is
@@ -770,6 +773,8 @@ change:       ldx     .near itemOn
 4$:           lda     ##9
 5$:           sta     .near nm_map
               rts
+
+              .section netstart, text ; ProgCode only (iigs.scm)
 
 ;;; D_NetJoinTick: D_NetUpdate while a join is on: its next step
 ;;; (netphase). Nothing blocks for long: the card is polled, the times
@@ -1772,7 +1777,9 @@ feed:         ldx     .near rxstate
               dex
               beq     hdrHi
               inc     .near rxidx           ; a payload byte: rxidx counts from 1
+#ifdef NETGAME
               jsr     .kbank sockFilter     ; (another socket's: unknown op)
+#endif
               ldx     .near rxop
               cpx     ##EV_DATA
               bne     2$
