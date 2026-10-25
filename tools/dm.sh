@@ -32,6 +32,10 @@
 # the two machines meet through the lobby's ws/match over wss (the
 # emulated card of cogs-1.36 does the WebSocket); no local relay is
 # started. The room code is in the build, so one run per code at a time.
+# STAGGER is WALL seconds between the two launches (default 4) while RUN
+# is EMULATED seconds; at the bench's 10x, RUN=420 ends seat A some 42 s
+# in, before a STAGGER=45 seat B has booted, and both sit alone on the
+# page (a lost afternoon, 2026-10-25). RUN=800 or more with a long stagger.
 cd "$(dirname "$0")/.." || exit 1
 MAME=${MAME:-../webifi-mame/cogs}
 ZIP=${ZIP:-7}

@@ -14,6 +14,9 @@
 #ifdef NETGAME
               .extern _g_playeringame, _g_consoleplayer, _g_psave
               .extern _g_deathmatch, _g_frags
+#ifdef NETGAME
+              .extern D_NetDrawName
+#endif
 #endif
               .extern W_GetNumForName, W_GetLumpByNum, V_DrawRawFullScreen
               .extern V_DrawNumPatchScaled, V_DrawPatchScaled, S_StartSound
@@ -868,13 +871,22 @@ drawFrags:    lda     ##SP_STATSY
 2$:           clc
               adc     ##DM_ROWY
               sta     .near WI_Y
-              lda     .near WI_I            ; the player's number, 1 or 2
+              lda     .near WI_Y            ; the player's name (the HUD
+              clc                           ;   font, centered on the row)
+              adc     ##4
+              tay
+              ldx     ##(SCREENW/2 - 4*FONTWIDTH)
+              lda     .near WI_I
+              jsl     long:D_NetDrawName
+              bcs     21$
+              lda     .near WI_I            ; (not known: his number, 1 or 2)
               inc     a
               sta     .near WI_N
               lda     ##(SCREENW/2 - 4*FONTWIDTH)
               sta     .near WI_X
               lda     ##1
               jsr     .kbank drawNum
+21$:
               lda     .near WI_I            ; his frags
               asl     a
               tax

@@ -66,11 +66,12 @@ at the same tic whatever the other page said. Then it is Doom.
 
 The status bar shows frags in a deathmatch (the ARMS box becomes FRAG, as
 in Doom), and the intermission is the deathmatch one with a frag row per
-player.
+player, under the names the players typed (the names cross with the go,
+so each machine knows the other's).
 
 ![Status bars of both players, one frag, one at 20% health](docs/images/net/frags.png)
 
-![The deathmatch intermission](docs/images/net/intermission.png)
+![The deathmatch intermission, ROB against DOOMGUY](docs/images/net/intermission.png)
 
 At the end of each deathmatch level both machines post to the lobby's
 leaderboard: frags, a win for the player with more of them, and the level

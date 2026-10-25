@@ -90,7 +90,9 @@ NS_FAILED     .equ    4               ;   the connect failed (netfail: why)
 JOIN_TRIES    .equ    5               ; connects before giving up
 NET_WAIT      .equ    90              ; s for the card's network
 GO_WAIT       .equ    600             ; s for the other player
-SETUP_TIC     .equ    0xffff          ; the tic of the setup record
+SETUP_TIC     .equ    0xffff          ; the special records (recByte):
+NAME_TIC      .equ    0xfffe          ;   a player's name, letters 0-6
+NAME2_TIC     .equ    0xfffd          ;   letter 7 (the lowest special tic)
 
 ;;; The page (m_menu65.s: MENU_SOUND, no menu of its own now, is its
 ;;; number; the skull goes by menuX, menuY and menuLine of it).
@@ -840,7 +842,11 @@ tickConnect:  lda     .near nettries
               status  strJoin, 0
               ldx     ##0xffff
               status  strFind, 0
-1$:           jsr     .kbank buildHost
+1$:           sep     #0x20                 ; (the last session's name)
+              lda     #0
+              sta     long:peername
+              rep     #0x20
+              jsr     .kbank buildHost
               jsr     .kbank sendConnect
               jsl     long:I_GetTime
               sta     .near NT_T
@@ -894,6 +900,7 @@ tickRetry:    jsl     long:I_GetTime
 ;;; the join tries again like any other.
 go:           ldx     ##0xffff
               status  strFound, 0
+              jsr     .kbank sendName
               lda     .near _g_consoleplayer
               bne     1$
               jsr     .kbank sendSetup
@@ -1129,7 +1136,9 @@ sendSetup:    lda     ##OP_SEND
               jsr     .kbank push8
               jsr     .kbank push8
               rts
-setupRec:     lda     .near (rec+2)
+specialRec:   cmp     ##SETUP_TIC
+              bne     1$
+              lda     .near (rec+2)
               and     ##0x00ff
               sta     .near nm_skill
               lda     .near (rec+3)
@@ -1143,6 +1152,116 @@ setupRec:     lda     .near (rec+2)
               sta     .near nm_mon
               inc     .near nm_setup
               rts
+1$:           cmp     ##NAME_TIC            ; the other player's name
+              bne     2$
+              ldx     ##0
+              sep     #0x20
+11$:          lda     .near (rec+2),x
+              sta     long:peername,x
+              inx
+              cpx     ##7
+              bcc     11$
+              lda     #0
+              sta     long:(peername+7)
+              rep     #0x20
+              rts
+2$:           sep     #0x20                 ; NAME2_TIC: its letter 7
+              lda     .near (rec+2)
+              sta     long:(peername+7)
+              rep     #0x20
+              rts
+
+;;; sendName: the player's name (YOUR NAME, or DOOMGUY) to the other
+;;; machine as two records, NAME_TIC with letters 0 to 6 and NAME2_TIC
+;;; with letter 7, zero padded (namebuf).
+sendName:     ldx     ##0
+              sep     #0x20
+              lda     #0
+1$:           sta     long:namebuf,x
+              inx
+              cpx     ##16
+              bcc     1$
+              rep     #0x20
+              ldx     ##.word0 strDefName
+              lda     .near nm_nlen
+              beq     2$
+              ldx     ##.word0 nm_name
+2$:           jsr     .kbank strPtr
+              ldx     ##0
+              sep     #0x20
+3$:           lda     [.tiny _Dp],y
+              beq     4$
+              sta     long:namebuf,x
+              iny
+              inx
+              bra     3$
+4$:           rep     #0x20
+              lda     ##NAME_TIC
+              ldx     ##0
+              jsr     .kbank nameRec
+              lda     ##NAME2_TIC
+              ldx     ##7
+nameRec:      sta     .near NM_T            ; the record: tic C, namebuf + X
+              stx     .near NM_S
+              lda     ##OP_SEND
+              jsr     .kbank push8
+              lda     ##(1 + REC_SIZE)
+              jsr     .kbank push8
+              lda     ##0
+              jsr     .kbank push8
+              lda     ##0                   ; sock 0
+              jsr     .kbank push8
+              lda     .near NM_T
+              jsr     .kbank push8
+              xba
+              jsr     .kbank push8
+              ldx     .near NM_S
+              ldy     ##7
+5$:           lda     long:namebuf,x
+              jsr     .kbank push8
+              inx
+              dey
+              bne     5$
+              rts
+
+;;; ---------------------------------------------------------------------------
+;;; D_NetDrawName: the intermission's deathmatch rows: the name of player
+;;; C (0 or 1) in the HUD font, ending at X, at Y; carry set. Carry clear
+;;; and nothing drawn when the other player's name has not come.
+;;; ---------------------------------------------------------------------------
+              .public D_NetDrawName
+D_NetDrawName:
+              sty     .near MT_Y
+              stx     .near NM_S
+              cmp     .near _g_consoleplayer
+              bne     1$
+              lda     ##.word0 strDefName
+              ldy     .near nm_nlen
+              beq     2$
+              lda     ##.word0 nm_name
+              bra     2$
+1$:           lda     long:peername
+              and     ##0xff
+              beq     9$
+              lda     ##.word0 peername
+2$:           pei     dp:.tiny (_Dp+8)
+              pei     dp:.tiny (_Dp+10)
+              pha
+              jsr     .kbank strWidth
+              eor     ##0xffff              ; the right end - the width
+              sec
+              adc     .near NM_S
+              sta     .near MT_X
+              pla
+              jsr     .kbank putStr
+              pla
+              sta     dp:.tiny (_Dp+10)
+              pla
+              sta     dp:.tiny (_Dp+8)
+              sec
+              rtl
+9$:           clc
+              rtl
 
 ;;; ---------------------------------------------------------------------------
 ;;; void D_NetScore(void): G_DoCompleted in a deathmatch: the player's
@@ -1327,6 +1446,9 @@ nm_code:      .byte   0
 #endif
 nm_codeEnd:
               .space  (CODE_MAX - (nm_codeEnd - nm_code - 1))
+peername:     .byte   0                     ; the other player's name (none: 0)
+              .space  CODE_MAX
+namebuf:      .space  16                    ; the name as sent (zero padded)
 strCard:      .asciz  "COGS CARD IN SLOT "
 errNoCard:    .asciz  "NO COGS CARD IN SLOTS 1-7"
 strNoNet:     .asciz  "WAITING FOR THE CARD'S NETWORK..."
@@ -1787,9 +1909,9 @@ recByte:      ldx     .near recpos
               stz     .near recpos
               lda     .near rec             ; the tic we wait for
 #ifdef NETGAME
-              cmp     ##SETUP_TIC           ; (or the setup record)
-              bne     0$
-              jsr     .kbank setupRec
+              cmp     ##NAME2_TIC           ; (or a special record)
+              bcc     0$
+              jsr     .kbank specialRec
               bra     done
 0$:
 #endif
