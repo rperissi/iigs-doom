@@ -74,6 +74,7 @@ ST_TXROOM     .equ    0x40            ;   the TX FIFO has room
 OP_TIME       .equ    0x05
 OP_CONNECT    .equ    0x10
 OP_SEND       .equ    0x11
+OP_HTTP       .equ    0x20
 EV_TIME       .equ    0x85
 EV_CONNECTED  .equ    0x90
 EV_DATA       .equ    0x91
@@ -131,6 +132,7 @@ JP_ERROR      .equ    7               ;   it failed (the lines say why)
               .extern _Dp, _g_player, _g_gametic, maketic, cmds
               .extern _g_resident, _g_consoleplayer, _g_playeringame
               .extern _g_deathmatch, _g_netgame, _g_nomonsters, P_SwapTo
+              .extern _g_frags
               .extern I_Error, I_GetTime, prndindex, _g_psave, G_ExitLevel
 #ifdef NETGAME
               .extern G_DeferedInitNewMap, _g_usergame, _g_menuactive, menutic
@@ -1142,6 +1144,153 @@ setupRec:     lda     .near (rec+2)
               inc     .near nm_setup
               rts
 
+;;; ---------------------------------------------------------------------------
+;;; void D_NetScore(void): G_DoCompleted in a deathmatch: the player's
+;;; frags of the level to the lobby's board, a win when he has more than
+;;; the other player, and the level played: POST /v1/score?g=doom&n=NAME
+;;; &v=N&x=frags&m=add (x=wins, x=games), HTTP requests the card makes on
+;;; sockets 1 to 3 while the game's socket 0 goes on; nothing is read back
+;;; (the events of other sockets are skipped by the parser). Through the
+;;; lobby only.
+;;; ---------------------------------------------------------------------------
+              .public D_NetScore
+D_NetScore:
+#if (NETFLAGS & 8)
+              lda     .near _g_netgame
+              beq     9$
+              lda     .near _g_deathmatch
+              beq     9$
+              lda     .near _g_consoleplayer
+              asl     a
+              tax
+              lda     .near _g_frags,x
+              bmi     1$                    ; (suicides can take it below 0)
+              beq     1$
+              cmp     ##100
+              bcc     0$
+              lda     ##99
+0$:           ldy     ##1                   ; sock 1
+              ldx     ##.word0 tagFrags
+              jsr     .kbank postScore
+1$:           lda     .near _g_consoleplayer
+              eor     ##1
+              asl     a
+              tax
+              lda     .near _g_frags,x      ; the other player's
+              ldx     .near _g_consoleplayer
+              beq     2$
+              ldx     ##2
+2$:           cmp     .near _g_frags,x      ; less than his: a win
+              bpl     3$
+              lda     ##1
+              ldy     ##2                   ; sock 2
+              ldx     ##.word0 tagWins
+              jsr     .kbank postScore
+3$:           lda     ##1                   ; and a level played
+              ldy     ##3                   ; sock 3
+              ldx     ##.word0 tagGames
+              jsr     .kbank postScore
+#endif
+9$:           rtl
+
+;;; postScore: the request: the value C (0 to 99), the socket Y, the tag
+;;; X (this bank): HTTP sock, flags 0, POST, the url (strScore, the name,
+;;; &v=, two digits, the tag), hdrs_len 0, body_len 0.
+SC_LEN        .equ    (12 + (strScoreEnd - strScore - 1) + 3 + 2)
+postScore:    phy
+              stx     .near NM_W            ; the tag, and its letters
+              jsr     .kbank toDec          ; numbuf (X: the tens)
+              ldx     .near NM_W
+              jsr     .kbank strLen
+              sta     .near NM_T
+              ldx     .near nm_nlen         ; the name's letters
+              bne     1$
+              ldx     ##(strDefNameEnd - strDefName - 1)
+1$:           stx     .near NM_S
+              lda     ##OP_HTTP
+              jsr     .kbank push8
+              lda     .near NM_S
+              clc
+              adc     .near NM_T
+              adc     ##SC_LEN
+              jsr     .kbank push8
+              lda     ##0
+              jsr     .kbank push8
+              pla                           ; sock
+              jsr     .kbank push8
+              lda     ##0                   ; flags: the body as DATA (skipped)
+              jsr     .kbank push8
+              lda     ##4
+              jsr     .kbank push8
+              ldx     ##.word0 strPost
+              jsr     .kbank pushStr
+              lda     .near NM_S            ; url_len
+              clc
+              adc     .near NM_T
+              adc     ##(SC_LEN - 12)
+              jsr     .kbank push8
+              ldx     ##.word0 strScore
+              jsr     .kbank pushStr
+              ldx     ##.word0 strDefName
+              lda     .near nm_nlen
+              beq     2$
+              ldx     ##.word0 nm_name
+2$:           jsr     .kbank pushStr
+              ldx     ##.word0 strValArg
+              jsr     .kbank pushStr
+              lda     long:(numbuf+1)       ; one digit: a 0 before it
+              and     ##0xff
+              bne     3$
+              lda     ##'0'
+              jsr     .kbank push8
+3$:           ldx     ##.word0 numbuf
+              jsr     .kbank pushStr
+              ldx     .near NM_W
+              jsr     .kbank pushStr
+              lda     ##0                   ; hdrs_len, body_len
+              jsr     .kbank push8
+              jsr     .kbank push8
+              jsr     .kbank push8
+              jmp     .kbank push8
+
+;;; sockFilter: the socket byte (rxidx 1) of a socket event: another
+;;; socket's (a score post's reply or close) is skipped as an unknown op
+;;; (for the parser of netcode, which is full). Keeps C.
+sockFilter:   ldx     .near rxidx
+              cpx     ##1
+              bne     1$
+              ldx     .near rxop
+              cpx     ##EV_TIME             ; (no socket byte)
+              beq     1$
+              cmp     ##0
+              beq     1$
+              stz     .near rxop
+1$:           rts
+
+;;; pushStr: the string X (this bank) to the card, through _Dp.
+;;; strLen: C = the letters of the string X.
+pushStr:      jsr     .kbank strPtr
+1$:           lda     [.tiny _Dp],y
+              and     ##0xff
+              beq     2$
+              jsr     .kbank push8
+              iny
+              bra     1$
+2$:           rts
+strLen:       jsr     .kbank strPtr
+1$:           lda     [.tiny _Dp],y
+              and     ##0xff
+              beq     2$
+              iny
+              bra     1$
+2$:           tya
+              rts
+strPtr:       stx     dp:.tiny _Dp
+              lda     ##.word2 strTitle
+              sta     dp:.tiny (_Dp+2)
+              ldy     ##0
+              rts
+
 ;;; The page's strings (and the buffers they are built in).
 strTitle:     .asciz  "NETWORK GAME"
 rowLabels:    .word   .word0 lblGame, .word0 lblSkill, .word0 lblMap
@@ -1167,6 +1316,7 @@ sk4:          .asciz  "NIGHTMARE!"
 mapbuf:       .asciz  "E1M1"
 numbuf:       .space  4
 strDefName:   .asciz  "DOOMGUY"             ; the name when none is typed
+strDefNameEnd:
 strCodeArg:   .asciz  "&c="
 nm_name:      .byte   0                     ; the name (CODE_MAX letters),
               .space  CODE_MAX              ;   the room code right after
@@ -1192,6 +1342,13 @@ strParen:     .asciz  ")"
 strRetrying:  .asciz  "), RETRYING"
 errTimeout:   .asciz  "NO OTHER PLAYER CAME"
 strFound:     .asciz  "FOUND ALL PLAYERS."
+strPost:      .asciz  "POST"
+strScore:     .asciz  "https://lobby.a2cogs.com/v1/score?g=doom&n="
+strScoreEnd:
+strValArg:    .asciz  "&v="
+tagFrags:     .asciz  "&x=frags&m=add"
+tagWins:      .asciz  "&x=wins&m=add"
+tagGames:     .asciz  "&x=games&m=add"
 #endif
 
               .section netcode, text ; Code5d only (iigs.scm)
@@ -1493,6 +1650,7 @@ feed:         ldx     .near rxstate
               dex
               beq     hdrHi
               inc     .near rxidx           ; a payload byte: rxidx counts from 1
+              jsr     .kbank sockFilter     ; (another socket's: unknown op)
               ldx     .near rxop
               cpx     ##EV_DATA
               bne     2$

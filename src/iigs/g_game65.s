@@ -121,7 +121,7 @@ pars:         .byte   0, 30, 75, 120, 90, 165, 180, 180, 30, 165
               .section znear, bss
               .public _g_gameaction, _g_gamestate, _g_gameskill, _g_gamemap, _g_player
               .extern maketic, P_PlayersReborn, D_NetCmds
-              .extern P_PlayersFinish, P_PlayersLoadLevel
+              .extern P_PlayersFinish, P_PlayersLoadLevel, D_NetScore
               .public _g_gametic, _g_basetic, _g_totalkills, _g_totallive, _g_totalitems
               .public _g_totalsecret, _g_wminfo, _g_respawnmonsters, _g_usergame
               .public _g_timingdemo, _g_demoplayback, _g_singledemo
@@ -780,6 +780,7 @@ G_SecretExitLevel:
 doCompleted:  stz     .near _g_gameaction
 #ifdef NETGAME
               jsl     long:P_PlayersFinish  ; both players
+              jsl     long:D_NetScore       ; the frags to the lobby
 #else
               ldx     ##(2 * CONST_NUMPOWERS - 1) ; Clear level-only powers and
                                                   ; cards.
