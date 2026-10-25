@@ -19,9 +19,12 @@
 ;;; tells each machine its player number and when both are in. Only
 ;;; socket 0 is used; the card is reset first.
 ;;;
-;;; NETGAME (make NETGAME=1): D_DoomMain starts here instead of the title.
-;;; Without it the game is the one-player game and this file only keeps
-;;; netmaketic equal to maketic.
+;;; NETGAME (make NETGAME=1): D_DoomMain calls D_NetJoin before the
+;;; graphics start (the card is found, slots 7 to 1, its network waited
+;;; for, the relay joined, with the progress on the startup text screen,
+;;; as IPXSETUP's "Attempting to find all players"), then D_NetStart
+;;; instead of the title. Without it the game is the one-player game and
+;;; this file only keeps netmaketic equal to maketic.
 
               .rtmodel version, "1"
               .rtmodel core, "*"
@@ -34,9 +37,6 @@ CMDS          .equ    16              ; (as g_game65.s)
 #else
 CMDS          .equ    8
 #endif
-#ifndef COGSSLOT
-#define COGSSLOT 3
-#endif
 #ifndef NETPORT
 #define NETPORT 5100
 #endif
@@ -44,12 +44,25 @@ CMDS          .equ    8
 #define NETFLAGS 0                      ; CONNECT flags: 0 plain, 9 TLS + WS
 #endif
 
-CARD          .equ    0xE0C080 + (COGSSLOT << 4)
-R_DATA        .equ    CARD
-R_STATUS      .equ    CARD + 1
-R_CONTROL     .equ    CARD + 4
+;;; The card: its registers are CARD + the slot's offset (slot * 16, in
+;;; cardoff, found by findCard: slots 7 to 1, the DEVSEL signature: ID $A2
+;;; at +5, VERSION not 0 at +6, STATUS not $FF at +1), so one disk serves
+;;; every machine. Every register access is lda/sta long:CARD+r,x: the
+;;; absolute long indexed mode has no extra cycle, unlike abs,X with a 16
+;;; bit index, whose cycle 3a reads the address twice and pops DATA twice
+;;; on a 65816.
+CARD          .equ    0xE0C080
+R_DATA        .equ    0
+R_STATUS      .equ    1
+R_CONTROL     .equ    4
+R_ID          .equ    5
+R_VERSION     .equ    6
+ST_RXAVAIL    .equ    0x80            ; STATUS: a byte waits at DATA
+ST_TXROOM     .equ    0x40            ;   the TX FIFO has room
+OP_TIME       .equ    0x05
 OP_CONNECT    .equ    0x10
 OP_SEND       .equ    0x11
+EV_TIME       .equ    0x85
 EV_CONNECTED  .equ    0x90
 EV_DATA       .equ    0x91
 EV_CLOSED     .equ    0x92
@@ -60,15 +73,29 @@ NS_NONE       .equ    0               ; netstate: nothing yet
 NS_CONNECTED  .equ    1               ;   the socket is open
 NS_NUMBERED   .equ    2               ;   the relay said which player we are
 NS_GO         .equ    3               ;   both machines are in
+NS_FAILED     .equ    4               ;   the connect failed (netfail: why)
+ADB_ESCAPE    .equ    0x35            ; the ADB key code of Esc
+ADBQ_MASK     .equ    31              ; (i_iigs65.s)
+JOIN_TRIES    .equ    5               ; connects before giving up
+NET_WAIT      .equ    90              ; s for the card's network
+GO_WAIT       .equ    600             ; s for the other player
 
               .extern _Dp, _g_player, _g_gametic, maketic, cmds
               .extern _g_resident, _g_consoleplayer, _g_playeringame
               .extern _g_deathmatch, _g_netgame, _g_nomonsters, P_SwapTo, G_DeferedInitNew
               .extern I_Error, I_GetTime, prndindex, _g_psave, G_ExitLevel
+              .extern printf, iigs_adbq, iigs_adbqhead, iigs_adbqtail
 
               .section znear, bss
-              .public netmaketic
+              .public netmaketic, netslot
 netmaketic:   .space  2               ; the tics that can run (D_NetUpdate)
+netslot:      .space  2               ; the card's slot, 0 before findCard
+cardoff:      .space  2               ;   its slot * 16 (CARD + cardoff)
+netfail:      .space  2               ; the connect result (NS_FAILED)
+nettime:      .space  4               ; the card's TIME (0: no network yet)
+netflag:      .space  2               ; a TIME reply came
+nettries:     .space  2               ; the connects so far
+NT_T0:        .space  2
 netsent:      .space  4               ; the tics sent
 peerhave:     .space  4               ; the tics of the other player in
 netstate:     .space  2
@@ -92,8 +119,21 @@ hostStr:      .asciz  NETHOST
 hostEnd:
 HOSTLEN       .equ    hostEnd - hostStr - 1
 #endif
-errTimeout:   .asciz  "D_NetStart: no game from the relay\n"
-errConnect:   .asciz  "D_NetStart: connect failed (%i)\n"
+msgCard:      .asciz  "I_NetInit: CoGS card in slot %i\n"
+msgNoNet:     .asciz  "I_NetInit: waiting for the card's network...\n"
+#if (NETFLAGS & 8)
+msgJoin:      .asciz  "I_NetInit: joining lobby.a2cogs.com...\n"
+#else
+msgJoin:      .asciz  "I_NetInit: joining the relay...\n"
+#endif
+msgFind:      .asciz  "Attempting to find all players...\n"
+msgRetry:     .asciz  "I_NetInit: connect failed (%i), retrying\n"
+msgFound:     .asciz  "Found all players.\n"
+errNoCard:    .asciz  "I_NetInit: no CoGS card in slots 1-7\n"
+errNoNet:     .asciz  "I_NetInit: the card has no network\n"
+errAbort:     .asciz  "I_NetInit: aborted\n"
+errTimeout:   .asciz  "I_NetInit: no other player came\n"
+errConnect:   .asciz  "I_NetInit: connect failed (%i)\n"
 errCard:      .asciz  "D_Net: the card reports an error (%i)\n"
 errClosed:    .asciz  "D_Net: the other player left (%i)\n"
 errSend:      .asciz  "D_Net: send failed (%i)\n"
@@ -102,29 +142,64 @@ errResident:  .asciz  "D_NetCmds: player %i resident\n"
 errCons:      .asciz  "consistency failure (%i should be %i) at tic %i\n"
 
 ;;; ---------------------------------------------------------------------------
-;;; void D_NetStart(void): the card reset, CONNECT to the relay, the player
-;;; number and the go from it, both players ready to be born, the game.
+;;; void D_NetJoin(void): before the graphics start: the card (findCard),
+;;; its network (TIME, not 0), CONNECT to the relay (again after a
+;;; failure, JOIN_TRIES times), the player number and the go from it. The
+;;; progress goes on the startup text screen; Esc quits.
+;;; void D_NetStart(void): after D_NetJoin, instead of the title: both
+;;; players ready to be born, the game.
 ;;; (Run once: in ProgCode, bank 5 with netcode, so its jsrs reach.)
 ;;; ---------------------------------------------------------------------------
+say           .macro  msg                   ; printf(msg, the value pushed)
+              lda     ##.word0 \msg
+              sta     dp:.tiny _Dp
+              lda     ##.word2 \msg
+              sta     dp:.tiny (_Dp+2)
+              jsl     long:printf
+              .endm
+
 #ifdef NETGAME
               .section netstart, text
-              .public D_NetStart
-D_NetStart:   sep     #0x20
-              lda     #0x01                 ; soft reset: no sockets, empty FIFOs
-              sta     long:R_CONTROL
-              rep     #0x20
-              stz     .near netstate
+              .public D_NetJoin, D_NetStart
+D_NetJoin:    jsr     .kbank findCard
+              bne     1$
+              lda     ##.word0 errNoCard
+              ldx     ##.word2 errNoCard
+              brl     error
+1$:           lda     .near netslot
+              pha
+              say     msgCard
+              pla
+              jsr     .kbank cardReset
+              jsl     long:I_GetTime        ; the network: TIME not 0
+              sta     .near NT_T0
+              stz     .near nettries        ; (the message once)
+2$:           jsr     .kbank askTime
+              lda     .near nettime
+              ora     .near (nettime+2)
+              bne     5$
+              lda     .near nettries
+              bne     3$
+              inc     .near nettries
+              say     msgNoNet
+3$:           jsl     long:I_GetTime
+              sec
+              sbc     .near NT_T0
+              cmp     ##(NET_WAIT * CONST_TICRATE)
+              bcc     4$
+              lda     ##.word0 errNoNet
+              ldx     ##.word2 errNoNet
+              brl     error
+4$:           lda     ##(2 * CONST_TICRATE) ; again in 2 s
+              jsr     .kbank pause
+              bra     2$
+5$:           say     msgJoin
+              stz     .near nettries
+6$:           stz     .near netstate        ; CONNECT: sock 0, flags, port, host
               stz     .near rxstate
               stz     .near recpos
-              jsl     long:I_GetTime        ; a moment for the reset
-              sta     .near NT_T
-1$:           jsl     long:I_GetTime
-              sec
-              sbc     .near NT_T
-              cmp     ##4
-              bcc     1$
               jsr     .kbank drainRx
-              lda     ##OP_CONNECT          ; CONNECT: sock 0, flags, port, host
+              lda     ##OP_CONNECT
               jsr     .kbank push8
               lda     ##(5 + HOSTLEN)
               jsr     .kbank push8
@@ -141,26 +216,150 @@ D_NetStart:   sep     #0x20
               lda     ##HOSTLEN
               jsr     .kbank push8
               ldx     ##0
-2$:           lda     long:hostStr,x
+7$:           lda     long:hostStr,x
               jsr     .kbank push8
               inx
               cpx     ##HOSTLEN
-              bcc     2$
-              jsl     long:I_GetTime        ; the number and the go, within 180 s
+              bcc     7$
+              say     msgFind
+              jsl     long:I_GetTime        ; the number and the go
               sta     .near NT_T
-3$:           jsr     .kbank pollRx
+8$:           jsr     .kbank pollRx
               lda     .near netstate
               cmp     ##NS_GO
-              beq     4$
+              beq     12$
+              cmp     ##NS_FAILED
+              beq     10$
+              jsr     .kbank escPressed
+              bne     9$
               jsl     long:I_GetTime
               sec
               sbc     .near NT_T
-              cmp     ##(180 * CONST_TICRATE)
-              bcc     3$
+              cmp     ##(GO_WAIT * CONST_TICRATE)
+              bcc     8$
               lda     ##.word0 errTimeout
               ldx     ##.word2 errTimeout
               brl     error
-4$:           lda     ##1                   ; a two-player deathmatch
+9$:           lda     ##.word0 errAbort
+              ldx     ##.word2 errAbort
+              brl     error
+10$:          inc     .near nettries        ; failed: again, JOIN_TRIES times
+              lda     .near nettries
+              cmp     ##JOIN_TRIES
+              bcc     11$
+              lda     .near netfail
+              pha
+              lda     ##.word0 errConnect
+              ldx     ##.word2 errConnect
+              brl     error
+11$:          lda     .near netfail
+              pha
+              say     msgRetry
+              pla
+              lda     ##(3 * CONST_TICRATE)
+              jsr     .kbank pause
+              brl     6$
+12$:          say     msgFound
+              rtl
+
+;;; findCard: cardoff and netslot for the card, slots 7 to 1 (Z clear),
+;;; or netslot 0 (Z set). The signature: ID $A2, VERSION not 0, STATUS not
+;;; $FF, the presence probe of the card's spec. The first read of a slot
+;;; is ID: a read of $C0n5 is harmless on the Apple cards.
+findCard:     ldx     ##0x70
+1$:           sep     #0x20
+              lda     long:CARD+R_ID,x
+              cmp     #0xa2
+              bne     2$
+              lda     long:CARD+R_VERSION,x
+              beq     2$
+              lda     long:CARD+R_STATUS,x
+              cmp     #0xff
+              bne     3$
+2$:           rep     #0x20                 ; (16 bits: B would ride into X)
+              txa
+              sec
+              sbc     ##0x10
+              tax
+              bne     1$
+              stz     .near netslot
+              rts
+3$:           rep     #0x20
+              stx     .near cardoff
+              txa
+              lsr     a
+              lsr     a
+              lsr     a
+              lsr     a
+              sta     .near netslot
+              rts
+
+;;; cardReset: soft reset: no sockets, empty FIFOs; a moment for it.
+cardReset:    ldx     .near cardoff
+              sep     #0x20
+              lda     #0x01
+              sta     long:CARD+R_CONTROL,x
+              rep     #0x20
+              lda     ##4
+              jsr     .kbank pause
+              jmp     .kbank drainRx
+
+;;; askTime: TIME to the card; nettime = its reply (0 without a reply
+;;; within 2 s, as without a network).
+askTime:      stz     .near netflag
+              stz     .near nettime
+              stz     .near (nettime+2)
+              stz     .near rxstate
+              lda     ##OP_TIME
+              jsr     .kbank push8
+              lda     ##0
+              jsr     .kbank push8
+              lda     ##0
+              jsr     .kbank push8
+              jsl     long:I_GetTime
+              sta     .near NT_T
+1$:           jsr     .kbank pollRx
+              lda     .near netflag
+              bne     2$
+              jsl     long:I_GetTime
+              sec
+              sbc     .near NT_T
+              cmp     ##(2 * CONST_TICRATE)
+              bcc     1$
+2$:           rts
+
+;;; pause: C tics go by.
+pause:        sta     .near NT_T
+              jsl     long:I_GetTime
+              clc
+              adc     .near NT_T
+              sta     .near NT_T
+1$:           jsl     long:I_GetTime
+              sec
+              sbc     .near NT_T
+              bmi     1$
+              rts
+
+;;; escPressed: Z clear when Esc went down since the last call (the raw
+;;; ADB ring of the interrupt, i_iigs65.s; the other keys are dropped).
+escPressed:   ldx     .near iigs_adbqtail
+1$:           cpx     .near iigs_adbqhead
+              beq     3$
+              lda     .near iigs_adbq,x     ; a key byte (bit 7: up)
+              and     ##0x00ff
+              inx
+              cpx     ##(ADBQ_MASK + 1)
+              bne     2$
+              ldx     ##0
+2$:           cmp     ##ADB_ESCAPE
+              bne     1$
+              stx     .near iigs_adbqtail   ; (A = ADB_ESCAPE: Z clear)
+              rts
+3$:           stx     .near iigs_adbqtail
+              lda     ##0
+              rts
+
+D_NetStart:   lda     ##1                   ; a two-player deathmatch
               sta     .near _g_netgame
               sta     .near _g_deathmatch
 #ifdef NOMONSTERS
@@ -169,11 +368,11 @@ D_NetStart:   sep     #0x20
               sta     .near (_g_playeringame+2)
               sep     #0x20                 ; both players: a fresh struct,
               ldx     ##(SIZEOF_PL - 1)     ;   to be born (player 0 is
-5$:           stz     .near _g_player,x     ;   resident, player 1 saved)
+1$:           stz     .near _g_player,x     ;   resident, player 1 saved)
               lda     #0
               sta     long:(_g_psave + SIZEOF_PL),x
               dex
-              bpl     5$
+              bpl     1$
               rep     #0x20
               lda     ##CONST_PST_REBORN
               sta     .near (_g_player+OFS_PL_PLAYERSTATE)
@@ -430,26 +629,31 @@ slotOf:       ldx     ##0
 ;;; push8: the low byte of C goes to the card when its TX FIFO has room.
 ;;; Keeps C and X.
 push8:        pha
+              phx
+              ldx     .near cardoff
               sep     #0x20
-1$:           lda     long:R_STATUS
-              and     #0x40
+1$:           lda     long:CARD+R_STATUS,x
+              and     #ST_TXROOM
               beq     1$
-              lda     1,s
-              sta     long:R_DATA
+              lda     3,s
+              sta     long:CARD+R_DATA,x
               rep     #0x20
+              plx
               pla
               rts
 
-;;; rxAvail: Z clear when the card has a byte for us.
-rxAvail:      sep     #0x20
-              lda     long:R_STATUS
+;;; rxAvail: Z clear when the card has a byte for us. (X: the card.)
+rxAvail:      ldx     .near cardoff
+              sep     #0x20
+              lda     long:CARD+R_STATUS,x
               rep     #0x20
-              and     ##0x0080
+              and     ##ST_RXAVAIL
               rts
 
-;;; pop8: C = the next byte from the card (there is one).
-pop8:         sep     #0x20
-              lda     long:R_DATA
+;;; pop8: C = the next byte from the card (there is one). (X: the card.)
+pop8:         ldx     .near cardoff
+              sep     #0x20
+              lda     long:CARD+R_DATA,x
               rep     #0x20
               and     ##0x00ff
               rts
@@ -492,8 +696,11 @@ feed:         ldx     .near rxstate
               bne     5$
               brl     errByte
 5$:           cpx     ##EV_CLOSED
-              bne     payloadDone
+              bne     6$
               brl     closedByte
+6$:           cpx     ##EV_TIME
+              bne     payloadDone
+              brl     timeByte
 payloadDone:  dec     .near rxlen           ; the frame ends with its length
               bne     1$
               stz     .near rxstate
@@ -520,14 +727,25 @@ connByte:     ldx     .near rxidx
               cpx     ##2
               bne     done
               cmp     ##0
-              bne     1$
+              bne     failed
               lda     ##NS_CONNECTED
               sta     .near netstate
               brl     payloadDone
-1$:           pha
-              lda     ##.word0 errConnect
-              ldx     ##.word2 errConnect
-              brl     error
+failed:       sta     .near netfail         ; D_NetJoin tries again
+              lda     ##NS_FAILED
+              sta     .near netstate
+              brl     payloadDone
+
+;;; timeByte: EV_TIME: the 4 bytes of the card's clock (0: no network).
+timeByte:     ldx     .near rxidx           ; (rxidx counts from 1)
+              dex
+              sep     #0x20
+              sta     .near nettime,x
+              rep     #0x20
+              cpx     ##3
+              bne     done
+              inc     .near netflag
+              brl     payloadDone
 
 ;;; ackByte: EV_SEND_ACK: sock, result.
 ackByte:      ldx     .near rxidx
@@ -551,6 +769,9 @@ errByte:      ldx     .near rxidx
 closedByte:   ldx     .near rxidx
               cpx     ##2
               bne     done
+              ldx     .near netstate
+              cpx     ##NS_GO
+              bne     failed
               pha
               lda     ##.word0 errClosed
               ldx     ##.word2 errClosed

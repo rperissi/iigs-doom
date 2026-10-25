@@ -89,7 +89,7 @@ _g_fps_framerate: .space 2
               .public maketic
               .extern D_NetUpdate, netmaketic
 #ifdef NETGAME
-              .extern D_NetStart
+              .extern D_NetJoin, D_NetStart
 #endif
 maketic:      .space  4               ; the tic commands made
 lastmadetic:  .space  4
@@ -202,6 +202,10 @@ D_DoomMain:   lda     dp:.tiny _Dp
               jsl     long:ST_Init
               jsl     long:uiLoadSettings  ; Settings and the view selector.
               stz     .near _g_fps_show
+#ifdef NETGAME
+              jsl     long:D_NetJoin        ; the card, the relay, the other
+                                            ;   player (d_net65.s), in text
+#endif
               jsl     long:I_InitGraphics
               lda     .near timedemo        ; a timedemo: that demo, one tic
               ora     .near (timedemo+2)    ;   for each frame, then quit

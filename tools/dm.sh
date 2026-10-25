@@ -3,7 +3,7 @@
 # emulated CoGS cards (the MAME of reference/webifi-mame with the cogs
 # slot device) and the relay tools/dmrelay.py on localhost.
 #
-# Build first: make NETGAME=1 (COGSSLOT=3 is the default, the relay port
+# Build first: make NETGAME=1 (the game finds the card in any slot, the relay port
 # 5100). The disks of build/ go to build/dm/seatA and seatB, each machine
 # boots its copy (tools/probe.lua swaps the disks on the loader's prompt)
 # and runs to game tic TICS (default 300), then dumps the state of both
@@ -86,6 +86,7 @@ fi
 ROOT=$(pwd)
 seat() {
     s=$1; keys=$2; dir=$WORK/seat$s
+    eval slot=\${SLOT$s:-3}                         # SLOTA / SLOTB: the card's slot
     mkdir -p "$dir/build" "$dir/snap"
     cp -R nvram "$dir/nvram"
     cp -R "cfg${ZIP:+/zip$ZIP}" "$dir/cfg"
@@ -98,7 +99,7 @@ seat() {
       PROBE_TICSHR="$TICS" PROBE_TICEXIT=1 PROBE_TEXTEXIT=1 PROBE_DUMP="$DUMP" \
       PROBE_TICPRESS="$keys" PROBE_POKE="$POKE" PROBE_TICPOKE="$TICPOKE" \
       PROBE_EXTRA="${PROBE_EXTRA:-/dev/null}" \
-      "$ROOT/$MAME" apple2gs -rompath "$ROOT/roms" -ramsize 8M -sl3 cogs \
+      "$ROOT/$MAME" apple2gs -rompath "$ROOT/roms" -ramsize 8M -sl$slot cogs \
       -flop3 "$ROOT/$dir/disk1.po" -window -nomaximize -video none -sound none \
       -nothrottle -skip_gameinfo -autoboot_script "$ROOT/tools/probe.lua" \
       -snapshot_directory snap -nvram_directory nvram -cfg_directory cfg \
