@@ -114,6 +114,16 @@ local function keyField(name)
 		local field = port.fields[name]
 		if field then return field end
 	end
+	-- a letter or digit: MAME names those fields "r  R", from the chars
+	if #name == 1 then
+		local want = name:lower():rep(2)
+		for _, port in pairs(manager.machine.ioport.ports) do
+			for fname, field in pairs(port.fields) do
+				local bare = fname:gsub("%s", ""):lower()
+				if bare == want or bare == name:lower() then return field end
+			end
+		end
+	end
 	return nil
 end
 local gameticAddr = os.getenv("PROBE_GAMETIC") and tonumber(os.getenv("PROBE_GAMETIC"), 16)

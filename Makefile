@@ -30,15 +30,17 @@ OBJ      := $(BUILD)/obj
 # FIND PLAYERS joins the relay NETHOST:NETPORT (tools/dmrelay.py) through
 # the CoGS card (found in slots 7 to 1). NETFLAGS are the card's CONNECT
 # flags (spec v0.8: bit0 TLS, bit3 WebSocket). make NETGAME=1 LOBBY=1
-# [ROOM=CODE] joins the lobby's Pair room wss://lobby.a2cogs.com/ws/pair?r=
-# plus the room code typed in the menu (ROOM is the code the menu starts
-# with; blank: the open room) instead (firmware 1.36 or the emulated card
-# of cogs-1.36); the room sends the same seat byte and 'G' as the relay.
+# [ROOM=CODE] joins the lobby instead, wss://lobby.a2cogs.com/ws/match?
+# g=doom&v=1&n=NAME[&c=CODE] with the name and room code typed in the menu
+# (ROOM is the code the menu starts with; blank: the public queue), so the
+# game shows on the lobby's waiting and playing counts (firmware 1.36 or
+# the emulated card of cogs-1.36); the room sends the same seat byte and
+# 'G' as the relay.
 # make NETGAME=1 AUTOJOIN=1: the game opens the menu and starts the join
 # itself at the start (the bench, tools/dm.sh).
 TICSTEP  ?= 1
 ifeq ($(LOBBY),1)
-NETHOST  := lobby.a2cogs.com/ws/pair?r=
+NETHOST  := lobby.a2cogs.com/ws/match?g=doom&v=1&n=
 NETPORT  := 443
 NETFLAGS := 9
 endif
@@ -84,7 +86,7 @@ all: disks
 disks: $(BUILD)/disk1.po
 
 # Rebuild everything when the build switches change
-DEFSTAMP := $(OBJ)/defs-$(if $(TIMEDEMO),timedemo,game)$(if $(PHASES),-phases)$(if $(PISCHECK),-pischeck)-tic$(TICSTEP)$(if $(MAXTICS),-max$(MAXTICS))$(if $(NETGAME),-net$(NETPORT)-f$(NETFLAGS)-$(subst =,_,$(subst ?,_,$(subst /,_,$(NETHOST))))$(ROOM)$(if $(AUTOJOIN),-auto))$(if $(BENCHEXIT),-exit$(BENCHEXIT))$(if $(NOMONSTERS),-nomonsters).stamp
+DEFSTAMP := $(OBJ)/defs-$(if $(TIMEDEMO),timedemo,game)$(if $(PHASES),-phases)$(if $(PISCHECK),-pischeck)-tic$(TICSTEP)$(if $(MAXTICS),-max$(MAXTICS))$(if $(NETGAME),-net$(NETPORT)-f$(NETFLAGS)-$(subst &,_,$(subst =,_,$(subst ?,_,$(subst /,_,$(NETHOST)))))$(ROOM)$(if $(AUTOJOIN),-auto))$(if $(BENCHEXIT),-exit$(BENCHEXIT))$(if $(NOMONSTERS),-nomonsters).stamp
 $(DEFSTAMP): | $(OBJ)
 	rm -f $(OBJ)/defs-*.stamp
 	touch $@

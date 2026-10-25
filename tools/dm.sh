@@ -29,9 +29,9 @@
 # share on CARDPORT, default 8131), as the players will from the catalog.
 # SLOTA / SLOTB pick the slots (default 5 and 7 then, 3 otherwise).
 # LOBBY=1: the build was make NETGAME=1 LOBBY=1 ROOM=CODE AUTOJOIN=1 and
-# the two machines meet in the lobby's Pair room over wss (the emulated
-# card of cogs-1.36 does the WebSocket); no local relay is started. The
-# room code is in the build, so one run per code at a time.
+# the two machines meet through the lobby's ws/match over wss (the
+# emulated card of cogs-1.36 does the WebSocket); no local relay is
+# started. The room code is in the build, so one run per code at a time.
 cd "$(dirname "$0")/.." || exit 1
 MAME=${MAME:-../webifi-mame/cogs}
 ZIP=${ZIP:-7}
@@ -94,7 +94,7 @@ fi
 if [ -n "$LOBBY" ]; then
     strings build/doom.elf | grep -q "lobby.a2cogs.com" || {
         echo "LOBBY=1 but the build has no lobby host: make NETGAME=1 LOBBY=1 AUTOJOIN=1 first" >&2; exit 1; }
-    echo "lobby: $(strings build/doom.elf | grep -o 'lobby.a2cogs.com/ws/pair?r=' | head -1)$(strings build/doom.elf | grep -A1 '^OPEN$' | tail -1)" > "$WORK/relay.log"
+    echo "lobby: $(strings build/doom.elf | grep -o 'lobby.a2cogs.com/ws/match[^ ]*' | head -1) code $(strings build/doom.elf | grep -A1 '^&c=$' | tail -1)" > "$WORK/relay.log"
     RELAY=
 else
     python3 tools/dmrelay.py --port "$PORT" --log "$WORK/relay.log" --seconds 300 &

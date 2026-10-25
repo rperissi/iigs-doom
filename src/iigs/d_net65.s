@@ -13,8 +13,9 @@
 ;;; The card (CoGS spec v0.8): frames of opcode, 16 bit length, payload
 ;;; through the DATA register of the slot; CONNECT (0x10) opens a TCP
 ;;; socket to the relay (tools/dmrelay.py, or with NETFLAGS 9 a WebSocket
-;;; over TLS to the lobby's Pair room, lobby.a2cogs.com/ws/pair?r=ROOM,
-;;; firmware 1.36), SEND (0x11) carries a record, and the DATA events
+;;; over TLS to the lobby, lobby.a2cogs.com/ws/match?g=doom&v=1&n=NAME
+;;; [&c=CODE], which queues the player like /v1/join and relays the two
+;;; seats' frames; firmware 1.36), SEND (0x11) carries a record, and the DATA events
 ;;; (0x91) of the socket bring the records of the other machine. The relay
 ;;; tells each machine its player number and when both are in. Only
 ;;; socket 0 is used; the card is reset first.
@@ -102,21 +103,22 @@ L_LOADG       .equ    6
 L_QUITG       .equ    8
 L_SAVEG       .equ    66
 EV_DATA1      .equ    2               ; event_t (type 0: ev_keydown)
-NM_ROWS       .equ    6               ; the rows
+NM_ROWS       .equ    7               ; the rows
 R_GAME        .equ    0
 R_SKILL       .equ    1
 R_MAP         .equ    2
 R_MON         .equ    3
-R_CODE        .equ    4
-R_FIND        .equ    5
+R_NAME        .equ    4
+R_CODE        .equ    5
+R_FIND        .equ    6
 NM_X          .equ    60              ; the rows: x, y, the line
-NM_Y          .equ    44
+NM_Y          .equ    36
 NM_LINE       .equ    16
 NM_RIGHT      .equ    284             ;   the values end here
-ST_Y          .equ    142             ; the status lines: y, the line
+ST_Y          .equ    150             ; the status lines: y, the line
 ST_LINE       .equ    10
 ST_MAX        .equ    4               ;   lines shown (the older ones go)
-CODE_MAX      .equ    8               ; the letters of a room code
+CODE_MAX      .equ    8               ; the letters of a name or room code
 JP_NONE       .equ    0               ; netphase: the page
 JP_CARD       .equ    1               ;   FIND PLAYERS: the card
 JP_TIME       .equ    2               ;   its network
@@ -183,8 +185,8 @@ NT_C:         .space  6               ; a command on its way to a save slot
 peercmds:     .space  (CMDS * 8)      ; the other player's commands, as cmds
 cons:         .space  (2 * CMDS * 2)  ; consistency[player][tic & (CMDS-1)]
 peercons:     .space  (CMDS * 2)      ; the consistency words that came
-hostbuf:      .space  64              ; the host of CONNECT: NETHOST, and
-                                      ;   with a WebSocket the room code
+hostbuf:      .space  80              ; the host of CONNECT: NETHOST, and
+                                      ;   with a WebSocket the name and code
 
 #ifdef NETGAME
               .section near, data     ; the page's choices
@@ -192,7 +194,9 @@ nm_dm:        .word   1               ; GAME: 1 deathmatch, 0 cooperative
 nm_skill:     .word   CONST_SK_MEDIUM
 nm_map:       .word   1
 nm_mon:       .word   1               ; MONSTERS: 1 on
-nm_len:       .word   (nm_codeEnd - nm_code - 1) ; the room code's letters
+nm_lens:                              ; the letters typed (typed: X)
+nm_nlen:      .word   0               ;   YOUR NAME (none: DOOMGUY)
+nm_clen:      .word   (nm_codeEnd - nm_code - 1) ;   ROOM CODE (none: public)
 #endif
 
               .section cfar, rodata
@@ -413,13 +417,21 @@ valueOf:      cpx     ##(2 * R_GAME)
               rts
 4$:           cpx     ##(2 * R_CODE)
               bne     5$
-              lda     .near nm_len
+              lda     .near nm_clen
               beq     41$
               lda     ##.word0 nm_code
               rts
 41$:          lda     ##.word0 strPublic
               rts
-5$:           lda     ##0
+5$:           cpx     ##(2 * R_NAME)
+              bne     6$
+              lda     .near nm_nlen
+              beq     51$
+              lda     ##.word0 nm_name
+              rts
+51$:          lda     ##.word0 strDefName
+              rts
+6$:           lda     ##0
               rts
 
 ;;; putStr: the string C (this bank) at MT_X, MT_Y; MT_X past it.
@@ -634,29 +646,30 @@ rPage:        lda     .near nm_ch
               stz     .near statn
               lda     ##CONST_SFX_PISTOL
               brl     rYes
-5$:           cmp     .near key_menu_back   ; Delete: a letter of the code
-              bne     6$
-              lda     .near itemOn
-              cmp     ##R_CODE
-              bne     9$
-              lda     .near nm_len
+5$:           cmp     .near key_menu_back   ; Delete: a letter of the name
+              bne     6$                    ;   or the code
+              jsr     .kbank typed
+              bcc     9$
+              lda     .near nm_lens,x
               beq     9$
               dec     a
-              sta     .near nm_len
+              sta     .near nm_lens,x
+              tya
+              clc
+              adc     .near nm_lens,x
               tax
               sep     #0x20
               lda     #0
-              sta     long:nm_code,x
+              sta     long:nm_name,x
               rep     #0x20
               bra     rMove
 6$:           cmp     .near key_menu_escape
               beq     9$
               cmp     .near key_fire
               beq     9$
-              lda     .near itemOn          ; a letter or a digit: the code
-              cmp     ##R_CODE
-              bne     rEat
-              lda     .near nm_len
+              jsr     .kbank typed          ; a letter or a digit: the name
+              bcc     rEat                  ;   or the code
+              lda     .near nm_lens,x
               cmp     ##CODE_MAX
               bcs     rEat
               lda     .near nm_ch
@@ -673,13 +686,18 @@ rPage:        lda     .near nm_ch
               cmp     ##('z' + 1)
               bcs     rEat
               sbc     ##('a' - 'A' - 1)     ; (carry clear) as upper case
-7$:           ldx     .near nm_len
+7$:           pha
+              tya
+              clc
+              adc     .near nm_lens,x
+              inc     .near nm_lens,x
+              tax
+              pla
               sep     #0x20
-              sta     long:nm_code,x
+              sta     long:nm_name,x
               lda     #0
-              sta     long:(nm_code+1),x
+              sta     long:(nm_name+1),x
               rep     #0x20
-              inc     .near nm_len
               bra     rMove
 9$:           stz     .near currentMenu     ; back: the main menu, at the row
               lda     ##1
@@ -695,6 +713,23 @@ rYes:         stz     dp:.tiny _Dp          ; S_StartSound(NULL, C)
               jsl     long:S_StartSound
               sec
               rtl
+
+;;; typed: carry set when row itemOn is typed (YOUR NAME, ROOM CODE), with
+;;; X its index into nm_lens and Y its buffer's offset from nm_name.
+typed:        lda     .near itemOn
+              sec
+              sbc     ##R_NAME
+              cmp     ##2
+              bcs     1$
+              asl     a
+              tax
+              beq     2$
+              lda     ##(CODE_MAX + 1)
+2$:           tay
+              sec
+              rts
+1$:           clc
+              rts
 
 ;;; change: the value of row itemOn, C = 1 the next, -1 the one before.
 change:       ldx     .near itemOn
@@ -984,8 +1019,9 @@ pause:        sta     .near NT_T
               bmi     1$
               rts
 
-;;; buildHost: hostbuf, hostlen = NETHOST, and with a WebSocket the room
-;;; code after it (OPEN for none: the open room).
+;;; buildHost: hostbuf, hostlen = NETHOST, and with a WebSocket (the
+;;; lobby's ws/match, NETHOST ends in n=) the name, then &c= and the room
+;;; code when one is typed (none: the public queue).
 buildHost:    sep     #0x20
               ldx     ##0
 1$:           lda     long:hostStr,x
@@ -995,25 +1031,37 @@ buildHost:    sep     #0x20
               bcc     1$
 #if (NETFLAGS & 8)
               rep     #0x20
-              lda     ##.word0 strOpen      ; (through _Dp: there is no long,y)
-              ldy     .near nm_len
+              lda     ##.word0 strDefName
+              ldy     .near nm_nlen
               beq     2$
-              lda     ##.word0 nm_code
-2$:           sta     dp:.tiny _Dp
-              lda     ##.word2 strOpen
-              sta     dp:.tiny (_Dp+2)
-              sep     #0x20
-              ldy     ##0
-3$:           lda     [.tiny _Dp],y
+              lda     ##.word0 nm_name
+2$:           jsr     .kbank appendStr
+              lda     .near nm_clen
               beq     4$
-              sta     long:hostbuf,x
-              inx
-              iny
-              bra     3$
+              lda     ##.word0 strCodeArg
+              jsr     .kbank appendStr
+              lda     ##.word0 nm_code
+              jsr     .kbank appendStr
 4$:
 #endif
               rep     #0x20
               stx     .near hostlen
+              rts
+
+;;; appendStr: the string C (this bank) to hostbuf at X (through _Dp:
+;;; there is no long,y). m16 in and out.
+appendStr:    sta     dp:.tiny _Dp
+              lda     ##.word2 strTitle
+              sta     dp:.tiny (_Dp+2)
+              sep     #0x20
+              ldy     ##0
+1$:           lda     [.tiny _Dp],y
+              beq     2$
+              sta     long:hostbuf,x
+              inx
+              iny
+              bra     1$
+2$:           rep     #0x20
               rts
 
 ;;; sendConnect: the socket's state from nothing, CONNECT: sock 0, the
@@ -1097,11 +1145,12 @@ setupRec:     lda     .near (rec+2)
 ;;; The page's strings (and the buffers they are built in).
 strTitle:     .asciz  "NETWORK GAME"
 rowLabels:    .word   .word0 lblGame, .word0 lblSkill, .word0 lblMap
-              .word   .word0 lblMon, .word0 lblCode, .word0 lblFind
+              .word   .word0 lblMon, .word0 lblName, .word0 lblCode, .word0 lblFind
 lblGame:      .asciz  "GAME"
 lblSkill:     .asciz  "SKILL"
 lblMap:       .asciz  "MAP"
 lblMon:       .asciz  "MONSTERS"
+lblName:      .asciz  "YOUR NAME"
 lblCode:      .asciz  "ROOM CODE"
 lblFind:      .asciz  "FIND PLAYERS"
 strDM:        .asciz  "DEATHMATCH"
@@ -1117,7 +1166,10 @@ sk3:          .asciz  "ULTRA-VIOLENCE"
 sk4:          .asciz  "NIGHTMARE!"
 mapbuf:       .asciz  "E1M1"
 numbuf:       .space  4
-strOpen:      .asciz  "OPEN"
+strDefName:   .asciz  "DOOMGUY"             ; the name when none is typed
+strCodeArg:   .asciz  "&c="
+nm_name:      .byte   0                     ; the name (CODE_MAX letters),
+              .space  CODE_MAX              ;   the room code right after
 #ifdef NETROOM
 nm_code:      .asciz  NETROOM               ; the room code (CODE_MAX letters)
 #else

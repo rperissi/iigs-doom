@@ -8,8 +8,8 @@
 # fires, Space uses. MAME takes Esc for itself (quit), so leave the Doom
 # menu alone; Cmd-Q the window to stop a seat.
 #
-# Build first: make NETGAME=1 LOBBY=1 ROOM=CODE AUTOJOIN=1 (the two meet in the
-# lobby's Pair room; LOBBY= in the env uses the local relay of dm.sh
+# Build first: make NETGAME=1 LOBBY=1 ROOM=CODE AUTOJOIN=1 (the two meet
+# through the lobby's ws/match; LOBBY= in the env uses the local relay of dm.sh
 # instead, with the matching make NETGAME=1 build).
 # Env: MAME (the binary), ZIP (cfg/zipN, default 7), DEMO, KEYS_A, KEYS_B,
 # STAGGER (seconds between the seats, default 4), POS_A, POS_B (window
@@ -40,7 +40,7 @@ RELAY=
 if [ -n "$LOBBY" ]; then
     strings build/doom.elf | grep -q "lobby.a2cogs.com" || {
         echo "the build has no lobby host: make NETGAME=1 LOBBY=1 first (or LOBBY= for the relay)" >&2; exit 1; }
-    echo "lobby: $(strings build/doom.elf | grep -o 'lobby.a2cogs.com/ws/pair?r=[A-Za-z0-9-]*' | head -1)"
+    echo "lobby: $(strings build/doom.elf | grep -o 'lobby.a2cogs.com/ws/match[^ ]*' | head -1) code $(strings build/doom.elf | grep -A1 '^&c=$' | tail -1)"
 else
     python3 tools/dmrelay.py --port "$PORT" --log "$WORK/relay.log" --seconds 3600 &
     RELAY=$!
