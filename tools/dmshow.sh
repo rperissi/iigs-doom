@@ -13,7 +13,9 @@
 # instead, with the matching make NETGAME=1 build).
 # Env: MAME (the binary), ZIP (cfg/zipN, default 7), DEMO, KEYS_A, KEYS_B,
 # STAGGER (seconds between the seats, default 4), POS_A, POS_B (window
-# x,y; default 0,40 and 700,40).
+# x,y; default 0,40 and 700,40). CARDBOOT=1: no floppies, each machine
+# boots build/doom-hd.po from its card (slots SLOTA / SLOTB, default 5 and
+# 7; a local range share on CARDPORT, default 8131), as dm.sh.
 cd "$(dirname "$0")/.." || exit 1
 MAME=${MAME:-../webifi-mame/cogs}
 ZIP=${ZIP:-7}
@@ -44,21 +46,41 @@ else
 fi
 
 ROOT=$(pwd)
+COGS_TEST=${COGS_TEST:-../../cogs-1.36/emu/mame/test}
+SHARE=
+if [ -n "$CARDBOOT" ]; then
+    [ -f build/doom-hd.po ] || { echo "no build/doom-hd.po" >&2; exit 1; }
+    CARDPORT=${CARDPORT:-8131}
+    python3 "$COGS_TEST/range_http.py" build "$CARDPORT" > "$WORK/share.log" 2>&1 &
+    SHARE=$!
+    sleep 1
+fi
 seat() {
     s=$1; keys=$2; pos=$3; dir=$WORK/seat$s
-    eval slot=\${SLOT$s:-3}                         # SLOTA / SLOTB: the card's slot
+    if [ -n "$CARDBOOT" ]; then dflt=$([ "$s" = A ] && echo 5 || echo 7); else dflt=3; fi
+    eval slot=\${SLOT$s:-$dflt}                     # SLOTA / SLOTB: the card's slot
     mkdir -p "$dir/build" "$dir/snap"
     cp -R nvram "$dir/nvram"
     cp -R "cfg${ZIP:+/zip$ZIP}" "$dir/cfg"
-    for f in build/disk[0-9].po; do cp "$f" "$dir/${f##*/}"; done
-    disks=$(ls "$ROOT/$dir"/disk[0-9].po | sort | paste -sd, -)
+    if [ -n "$CARDBOOT" ]; then
+        python3 "$COGS_TEST/bram_startup.py" "$dir/nvram/apple2gs/rtc" --slot "$slot" --startup "$slot" > /dev/null
+        media=
+        disks=
+        volurl="http://127.0.0.1:$CARDPORT/doom-hd.po"
+    else
+        for f in build/disk[0-9].po; do cp "$f" "$dir/${f##*/}"; done
+        disks=$(ls "$ROOT/$dir"/disk[0-9].po | sort | paste -sd, -)
+        media="-flop3 $ROOT/$dir/disk1.po"
+        volurl=
+    fi
     printf "CGN1\005dmnet\001x\000\000\000" > "$dir/cogs_nv"
-    ( cd "$dir" && SDL_VIDEO_WINDOW_POS="$pos" \
+    ( cd "$dir" && { [ -n "$volurl" ] && export COGS_VOL_URL="$volurl"; } ; \
+      SDL_VIDEO_WINDOW_POS="$pos" \
       COGS_EMU_NVRAM="$ROOT/$dir/cogs_nv" \
       PROBE_DISKS="$disks" PROBE_SECONDS=0 PROBE_GAMETIC="$G" PROBE_FASTLOAD=1 \
       PROBE_TICPRESS="$keys" \
       "$ROOT/$MAME" apple2gs -rompath "$ROOT/roms" -ramsize 8M -sl$slot cogs \
-      -flop3 "$ROOT/$dir/disk1.po" -window -nomaximize -skip_gameinfo \
+      $media -window -nomaximize -skip_gameinfo \
       -autoboot_script "$ROOT/tools/probe.lua" \
       -snapshot_directory snap -nvram_directory nvram -cfg_directory cfg \
       > mame.log 2>&1 )
@@ -68,6 +90,6 @@ PA=$!
 sleep ${STAGGER:-4}                                 # seat A connects first: player 0
 seat B "$KEYS_B" "${POS_B:-700,40}" &
 PB=$!
-trap 'kill $RELAY $PA $PB 2>/dev/null' EXIT INT TERM
+trap 'kill $RELAY $SHARE $PA $PB 2>/dev/null' EXIT INT TERM
 echo "seats $PA $PB, work $WORK (logs $WORK/seatA/mame.log, seatB/mame.log)"
 wait $PA $PB

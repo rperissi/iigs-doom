@@ -19,6 +19,11 @@
 # the CPU does not see Lua's RAM writes to banks 02 and 04, so a level
 # end comes from make NETGAME=1 BENCHEXIT=300 instead).
 # Seat A is player 0 (it connects first).
+# CARDBOOT=1: no floppies; each machine boots build/doom-hd.po FROM its
+# CoGS card (the slot set to Your Card and the startup slot in the seat's
+# battery RAM, the image served to the emulated card by a local range
+# share on CARDPORT, default 8131), as the players will from the catalog.
+# SLOTA / SLOTB pick the slots (default 5 and 7 then, 3 otherwise).
 # LOBBY=1: the build was make NETGAME=1 LOBBY=1 [ROOM=...] and the two
 # machines meet in the lobby's Pair room over wss (the emulated card of
 # cogs-1.36 does the WebSocket); no local relay is started. The room code
@@ -72,6 +77,15 @@ fi
 
 rm -rf "$WORK"
 mkdir -p "$WORK"
+COGS_TEST=${COGS_TEST:-../../cogs-1.36/emu/mame/test}
+if [ -n "$CARDBOOT" ]; then
+    [ -f build/doom-hd.po ] || { echo "no build/doom-hd.po" >&2; exit 1; }
+    CARDPORT=${CARDPORT:-8131}
+    python3 "$COGS_TEST/range_http.py" build "$CARDPORT" > "$WORK/share.log" 2>&1 &
+    SHARE=$!
+    trap 'kill $SHARE 2>/dev/null' EXIT
+    sleep 1
+fi
 if [ -n "$LOBBY" ]; then
     strings build/doom.elf | grep -q "lobby.a2cogs.com" || {
         echo "LOBBY=1 but the build has no lobby host: make NETGAME=1 LOBBY=1 first" >&2; exit 1; }
@@ -86,21 +100,32 @@ fi
 ROOT=$(pwd)
 seat() {
     s=$1; keys=$2; dir=$WORK/seat$s
-    eval slot=\${SLOT$s:-3}                         # SLOTA / SLOTB: the card's slot
+    if [ -n "$CARDBOOT" ]; then dflt=$([ "$s" = A ] && echo 5 || echo 7); else dflt=3; fi
+    eval slot=\${SLOT$s:-$dflt}                     # SLOTA / SLOTB: the card's slot
     mkdir -p "$dir/build" "$dir/snap"
     cp -R nvram "$dir/nvram"
     cp -R "cfg${ZIP:+/zip$ZIP}" "$dir/cfg"
-    for f in build/disk[0-9].po; do cp "$f" "$dir/${f##*/}"; done
-    disks=$(ls "$ROOT/$dir"/disk[0-9].po | sort | paste -sd, -)
+    if [ -n "$CARDBOOT" ]; then
+        python3 "$COGS_TEST/bram_startup.py" "$dir/nvram/apple2gs/rtc" --slot "$slot" --startup "$slot" > /dev/null
+        media="-nothrottle"
+        disks=
+        volurl="http://127.0.0.1:$CARDPORT/doom-hd.po"
+    else
+        for f in build/disk[0-9].po; do cp "$f" "$dir/${f##*/}"; done
+        disks=$(ls "$ROOT/$dir"/disk[0-9].po | sort | paste -sd, -)
+        media="-flop3 $ROOT/$dir/disk1.po"
+        volurl=
+    fi
     printf "CGN1\005dmnet\001x\000\000\000" > "$dir/cogs_nv"
-    ( cd "$dir" && SDL_VIDEO_DRIVER=dummy SDL_VIDEODRIVER=dummy SDL_MAC_BACKGROUND_APP=1 \
+    ( cd "$dir" && { [ -n "$volurl" ] && export COGS_VOL_URL="$volurl"; } ; \
+      SDL_VIDEO_DRIVER=dummy SDL_VIDEODRIVER=dummy SDL_MAC_BACKGROUND_APP=1 \
       COGS_EMU_NVRAM="$ROOT/$dir/cogs_nv" \
       PROBE_DISKS="$disks" PROBE_SECONDS="$RUN" PROBE_GAMETIC="$G" \
       PROBE_TICSHR="$TICS" PROBE_TICEXIT=1 PROBE_TEXTEXIT=1 PROBE_DUMP="$DUMP" \
       PROBE_TICPRESS="$keys" PROBE_POKE="$POKE" PROBE_TICPOKE="$TICPOKE" \
       PROBE_EXTRA="${PROBE_EXTRA:-/dev/null}" \
       "$ROOT/$MAME" apple2gs -rompath "$ROOT/roms" -ramsize 8M -sl$slot cogs \
-      -flop3 "$ROOT/$dir/disk1.po" -window -nomaximize -video none -sound none \
+      $media -window -nomaximize -video none -sound none \
       -nothrottle -skip_gameinfo -autoboot_script "$ROOT/tools/probe.lua" \
       -snapshot_directory snap -nvram_directory nvram -cfg_directory cfg \
       > mame.log 2>&1 )
@@ -110,7 +135,7 @@ PA=$!
 sleep ${STAGGER:-4}                                 # seat A connects first: player 0
 seat B "$KEYS_B" &
 PB=$!
-trap 'kill $RELAY $PA $PB 2>/dev/null' EXIT
+trap 'kill $RELAY $SHARE $PA $PB 2>/dev/null' EXIT
 echo "relay $RELAY, seats $PA $PB, work $WORK"
 wait $PA $PB
 sleep 1
