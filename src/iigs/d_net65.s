@@ -158,6 +158,8 @@ netfail:      .space  2               ; the connect result (NS_FAILED)
 nettime:      .space  4               ; the card's TIME (0: no network yet)
 netflag:      .space  2               ; a TIME reply came
 nettries:     .space  2               ; the connects so far
+connshown:    .space  2               ; a retry's connect went through (said)
+rtwait:       .space  2               ; the retry's wait (tics)
 NT_T0:        .space  2
 netphase:     .space  2               ; the join (JP_*)
 hostlen:      .space  2               ; the host of CONNECT (hostbuf)
@@ -851,6 +853,7 @@ tickConnect:  lda     .near nettries
               lda     #0
               sta     long:peername
               rep     #0x20
+              stz     .near connshown
               jsr     .kbank buildHost
               jsr     .kbank sendConnect
               jsl     long:I_GetTime
@@ -864,10 +867,20 @@ tickConnect:  lda     .near nettries
 tickFind:     jsr     .kbank pollRx
               lda     .near netstate
               cmp     ##NS_GO
-              beq     go
-              cmp     ##NS_FAILED
+              bne     3$
+              brl     go
+3$:           cmp     ##NS_FAILED
               beq     connFailed
-              jsl     long:I_GetTime
+              cmp     ##NS_CONNECTED        ; a retry's connect went through:
+              bcc     2$                    ;   the FAILED line stands, so say
+              lda     .near connshown       ;   the finding is on again
+              bne     2$
+              inc     .near connshown
+              lda     .near nettries
+              beq     2$
+              ldx     ##0xffff
+              status  strFind, 0
+2$:           jsl     long:I_GetTime
               sec
               sbc     .near NT_T
               cmp     ##(GO_WAIT * CONST_TICRATE)
@@ -893,7 +906,13 @@ connFailed:   inc     .near nettries
 tickRetry:    jsl     long:I_GetTime
               sec
               sbc     .near NT_T
-              cmp     ##(3 * CONST_TICRATE)
+              ldy     ##(3 * CONST_TICRATE)
+              ldx     .near netfail         ; the socket was busy (8, a card
+              cpx     ##8                   ;   fetch on it): a second is
+              bne     0$                    ;   plenty
+              ldy     ##CONST_TICRATE
+0$:           sty     .near rtwait
+              cmp     .near rtwait
               bcc     1$
               lda     ##JP_CONNECT
               sta     .near netphase
@@ -915,7 +934,9 @@ go:           ldx     ##0xffff
 tickSetup:    jsr     .kbank pollRx
               lda     .near netstate
               cmp     ##NS_FAILED
-              beq     connFailed
+              bne     4$
+              brl     connFailed
+4$:
               lda     .near nm_setup
               bne     startGame
               rts
