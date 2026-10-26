@@ -41,6 +41,9 @@
               .extern musTitle, musInter, musFinale
               .public W_LevelDone
               .public lvRead, lvStatus, lvEject, lvDib
+#ifdef NETGAME
+              .extern rxstate, recpos
+#endif
               .public titleWipe
               .extern I_ApplyColors, musGo, musLoad, snd_MusicVolume, Z_MallocStatic
               .extern initcell, iigs_rowpageL, iigs_rowpageR, _UDivMod32
@@ -2537,6 +2540,10 @@ LV_END        .equ    0x008e26        ; (the end of the variables)
               .section diskcode, text
 lvRead:       phd
               phb
+#ifdef NETGAME
+              stz     .near rxstate         ; the card's block driver empties
+              stz     .near recpos          ;   the card's queue: a frame or
+#endif                                      ;   record half in is gone (d_net65)
               phk                           ; this bank: 0
               plb
               pha

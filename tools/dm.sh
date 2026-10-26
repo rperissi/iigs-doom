@@ -114,10 +114,11 @@ seat() {
     eval slot=\${SLOT$s:-$dflt}                     # SLOTA / SLOTB: the card's slot
     mkdir -p "$dir/build" "$dir/snap"
     cp -R nvram "$dir/nvram"
-    cp -R "cfg${ZIP:+/zip$ZIP}" "$dir/cfg"
+    eval z=\"\${ZIP_$s-\$ZIP}\"                      # ZIP_A / ZIP_B: that seat's
+    cp -R "cfg${z:+/zip$z}" "$dir/cfg"            #   cfg (ZIP_B= : stock speed)
     if [ -n "$CARDBOOT" ]; then
         python3 "$COGS_TEST/bram_startup.py" "$dir/nvram/apple2gs/rtc" --slot "$slot" --startup "$slot" > /dev/null
-        media="-nothrottle"
+        media=
         disks=
         volurl="http://127.0.0.1:$CARDPORT/doom-hd.po"
     else
@@ -127,6 +128,12 @@ seat() {
         volurl=
     fi
     printf "CGN1\005dmnet\001x\000\000\000" > "$dir/cogs_nv"
+    ram=8M                                       # RAM_A / RAM_B: 4M reads the
+    [ "$s" = A ] && ram="${RAM_A:-8M}"         #   levels from the card (the
+    [ "$s" = B ] && ram="${RAM_B:-8M}"         #   lost-records case)
+    nothr=-nothrottle                            # THROTTLE_A / THROTTLE_B=1:
+    [ "$s" = A ] && [ -n "$THROTTLE_A" ] && nothr=   #   that seat at 1x (its level
+    [ "$s" = B ] && [ -n "$THROTTLE_B" ] && nothr=   #   load takes real seconds)
     ( cd "$dir" && { [ -n "$volurl" ] && export COGS_VOL_URL="$volurl"; } ; \
       SDL_VIDEO_DRIVER=dummy SDL_VIDEODRIVER=dummy SDL_MAC_BACKGROUND_APP=1 \
       COGS_EMU_NVRAM="$ROOT/$dir/cogs_nv" \
@@ -134,9 +141,9 @@ seat() {
       PROBE_TICSHR="$TICS" PROBE_TICEXIT=1 PROBE_TEXTEXIT=1 PROBE_DUMP="$DUMP" \
       PROBE_TICPRESS="$keys" PROBE_PRESS="$press" PROBE_POKE="$POKE" PROBE_TICPOKE="$TICPOKE" \
       PROBE_EXTRA="${PROBE_EXTRA:-/dev/null}" \
-      "$ROOT/$MAME" apple2gs -rompath "$ROOT/roms" -ramsize 8M -sl$slot cogs \
+      "$ROOT/$MAME" apple2gs -rompath "$ROOT/roms" -ramsize "$ram" -sl$slot cogs \
       $media -window -nomaximize -video none -sound none \
-      -nothrottle -skip_gameinfo -autoboot_script "$ROOT/tools/probe.lua" \
+      $nothr -skip_gameinfo -autoboot_script "$ROOT/tools/probe.lua" \
       -snapshot_directory snap -nvram_directory nvram -cfg_directory cfg \
       > mame.log 2>&1 )
 }

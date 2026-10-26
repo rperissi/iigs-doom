@@ -74,6 +74,7 @@ ST_TXROOM     .equ    0x40            ;   the TX FIFO has room
 OP_TIME       .equ    0x05
 OP_CONNECT    .equ    0x10
 OP_SEND       .equ    0x11
+OP_CLOSE      .equ    0x12
 OP_HTTP       .equ    0x20
 EV_TIME       .equ    0x85
 EV_CONNECTED  .equ    0x90
@@ -92,7 +93,11 @@ NET_WAIT      .equ    90              ; s for the card's network
 GO_WAIT       .equ    600             ; s for the other player
 SETUP_TIC     .equ    0xffff          ; the special records (recByte):
 NAME_TIC      .equ    0xfffe          ;   a player's name, letters 0-6
-NAME2_TIC     .equ    0xfffd          ;   letter 7 (the lowest special tic)
+NAME2_TIC     .equ    0xfffd          ;   letter 7
+REQ_TIC       .equ    0xfffc          ;   send the records from tic X again
+                                      ;   (the lowest special tic)
+SENT          .equ    16              ; the records sent, kept for REQ_TIC
+REQ_WAIT      .equ    35              ; tics between two requests of a gap
 
 ;;; The page (m_menu65.s: MENU_SOUND, no menu of its own now, is its
 ;;; number; the skull goes by menuX, menuY and menuLine of it).
@@ -135,8 +140,9 @@ JP_ERROR      .equ    7               ;   it failed (the lines say why)
               .extern _g_resident, _g_consoleplayer, _g_playeringame
               .extern _g_deathmatch, _g_netgame, _g_nomonsters, P_SwapTo
 #ifdef NETGAME
-              .extern M_NetLeft
-#endif
+              .extern M_NetLeft, M_NetLost
+              .public rxstate, recpos   ; (lvRead, w_level65.s: a block read
+#endif                                  ;   empties the card's queue)
               .extern _g_frags
               .extern I_Error, I_GetTime, prndindex, _g_psave, G_ExitLevel
 #ifdef NETGAME
@@ -189,11 +195,23 @@ recpos:       .space  2               ; the record coming in
 rec:          .space  10
 NT_T:         .space  4
 NT_C:         .space  6               ; a command on its way to a save slot
+txtic:        .space  2               ; the tic of the record going out
+gapwait:      .space  2               ; 1: records of the other player are
+                                      ;   missing (a REQ_TIC is out)
+reqtic:       .space  2               ; the tic the last REQ_TIC asked for
+reqtime:      .space  4               ;   and when (I_GetTime)
+reqrec:       .space  10              ;   the REQ_TIC record
 
               .section zfar, bss
 peercmds:     .space  (CMDS * 8)      ; the other player's commands, as cmds
 cons:         .space  (2 * CMDS * 2)  ; consistency[player][tic & (CMDS-1)]
 peercons:     .space  (CMDS * 2)      ; the consistency words that came
+sentrecs:     .space  (SENT * 16)     ; the last SENT records out (REC_SIZE
+                                      ;   bytes at 16 each): sent again on
+                                      ;   REQ_TIC. The card's block driver
+                                      ;   empties the card's queue at every
+                                      ;   read (a 4 MB machine reads the
+                                      ;   level), so records get lost.
 hostbuf:      .space  80              ; the host of CONNECT: NETHOST, and
                                       ;   with a WebSocket the name and code
 
@@ -1112,6 +1130,8 @@ sendConnect:  stz     .near netstate
               stz     .near peerhave
               stz     .near (peerhave+2)
               stz     .near nm_setup
+              stz     .near gapwait
+              stz     .near reqtic
               jsr     .kbank drainRx
               lda     ##OP_CONNECT
               jsr     .kbank push8
@@ -1194,11 +1214,14 @@ specialRec:   cmp     ##SETUP_TIC
               sta     long:(peername+7)
               rep     #0x20
               rts
-2$:           sep     #0x20                 ; NAME2_TIC: its letter 7
+2$:           cmp     ##NAME2_TIC           ; NAME2_TIC: its letter 7
+              bne     3$
+              sep     #0x20
               lda     .near (rec+2)
               sta     long:(peername+7)
               rep     #0x20
               rts
+3$:           jmp     .kbank resend         ; REQ_TIC: the records again
 
 ;;; sendName: the player's name (YOUR NAME, or DOOMGUY) to the other
 ;;; machine as two records, NAME_TIC with letters 0 to 6 and NAME2_TIC
@@ -1524,12 +1547,21 @@ D_NetUpdate:  lda     .near _g_netgame
 1$:           lda     .near netsent         ; the new tics out
               cmp     .near maketic
               beq     2$
+              sta     .near txtic
               jsr     .kbank sendTic
               inc     .near netsent
               bne     1$
               inc     .near (netsent+2)
               bra     1$
 2$:           jsr     .kbank pollRx         ; the other's in
+#ifdef NETGAME
+              lda     .near gapwait         ; records missing for a while
+              beq     5$                    ;   (the request may have been
+              jsr     .kbank reqDue         ;   lost the same way): ask again
+              bcc     5$
+              jsr     .kbank sendReq
+5$:
+#endif
               lda     .near peerhave        ; netmaketic = min(maketic, peerhave)
               sec
               sbc     .near maketic
@@ -1540,9 +1572,36 @@ D_NetUpdate:  lda     .near _g_netgame
 4$:           sta     .near netmaketic
               rtl
 
-;;; sendTic: SEND the record of tic netsent: the tic, cmds[tic], and the
-;;; consistency word of the console player at that tic.
-sendTic:      lda     ##OP_SEND
+;;; sendTic: SEND the record of tic txtic: the tic, cmds[tic], and the
+;;; consistency word of the console player at that tic. The record is
+;;; built in its sentrecs slot (txSlot) and stays there for a REQ_TIC.
+sendTic:      jsr     .kbank txSlot
+              lda     .near txtic           ; the tic
+              ldy     ##0
+              sta     [dp:.tiny _Dp],y
+              and     ##(CMDS - 1)          ; the command
+              asl     a
+              asl     a
+              asl     a
+              tax
+              lda     .near cmds,x
+              ldy     ##2
+              sta     [dp:.tiny _Dp],y
+              lda     .near (cmds+2),x
+              ldy     ##4
+              sta     [dp:.tiny _Dp],y
+              lda     .near (cmds+4),x
+              ldy     ##6
+              sta     [dp:.tiny _Dp],y
+              lda     .near txtic           ; the consistency word
+              jsr     .kbank consIndex
+              jsr     .kbank ownRing
+              tax
+              lda     long:cons,x
+              ldy     ##7
+              sta     [dp:.tiny _Dp],y
+;;; pushTx: SEND the REC_SIZE bytes at [_Dp].
+pushTx:       lda     ##OP_SEND
               jsr     .kbank push8
               lda     ##(1 + REC_SIZE)
               jsr     .kbank push8
@@ -1550,35 +1609,108 @@ sendTic:      lda     ##OP_SEND
               jsr     .kbank push8
               lda     ##0                   ; sock 0
               jsr     .kbank push8
-              lda     .near netsent         ; the tic
+              ldy     ##0
+1$:           lda     [dp:.tiny _Dp],y
               jsr     .kbank push8
-              xba
-              jsr     .kbank push8
-              lda     .near netsent         ; the command
-              and     ##(CMDS - 1)
-              asl     a
-              asl     a
-              asl     a
-              tax
-              lda     .near cmds,x
-              jsr     .kbank push8
-              xba
-              jsr     .kbank push8
-              lda     .near (cmds+2),x
-              jsr     .kbank push8
-              xba
-              jsr     .kbank push8
-              lda     .near (cmds+4),x
-              jsr     .kbank push8
-              lda     .near netsent         ; the consistency word
-              jsr     .kbank consIndex
-              jsr     .kbank ownRing
-              tax
-              lda     long:cons,x
-              jsr     .kbank push8
-              xba
-              jsr     .kbank push8
+              iny
+              cpy     ##REC_SIZE
+              bcc     1$
               rts
+
+;;; txSlot: _Dp = the sentrecs slot of tic txtic.
+txSlot:       lda     .near txtic
+              and     ##(SENT - 1)
+              asl     a
+              asl     a
+              asl     a
+              asl     a
+              clc
+              adc     ##.word0 sentrecs
+              sta     dp:.tiny _Dp
+              lda     ##.word2 sentrecs
+              sta     dp:.tiny (_Dp+2)
+              rts
+
+;;; sendReq: the other machine's records from tic peerhave are missing:
+;;; SEND a REQ_TIC record asking for them again, and note the request
+;;; (reqtic, reqtime, gapwait: D_NetUpdate repeats it after REQ_WAIT).
+sendReq:      lda     .near peerhave
+              sta     .near reqtic
+              jsl     long:I_GetTime
+              sta     .near reqtime
+              lda     ##1
+              sta     .near gapwait
+              lda     ##REQ_TIC
+              sta     .near reqrec
+              lda     .near peerhave
+              sta     .near (reqrec+2)
+              stz     .near (reqrec+4)
+              stz     .near (reqrec+6)
+              stz     .near (reqrec+8)
+              lda     ##.word0 reqrec
+              sta     dp:.tiny _Dp
+              lda     ##.word2 reqrec
+              sta     dp:.tiny (_Dp+2)
+              bra     pushTx
+
+;;; reqDue: carry set when REQ_WAIT tics passed since the last request.
+reqDue:       jsl     long:I_GetTime
+              sec
+              sbc     .near reqtime
+              cmp     ##REQ_WAIT
+              rts
+
+;;; resend: a REQ_TIC came: the records from tic rec+2 to netsent - 1 go
+;;; out again from sentrecs. A tic no longer there (more than SENT back,
+;;; or the slot holds another tic): the machines lost each other (lostSync).
+resend:       lda     .near (rec+2)
+              sta     .near txtic
+1$:           lda     .near netsent
+              sec
+              sbc     .near txtic
+              beq     9$                    ; all out
+              bmi     9$                    ; (tics not sent yet: nothing)
+              cmp     ##(SENT + 1)
+              bcs     lostSync
+              jsr     .kbank txSlot
+              ldy     ##0
+              lda     [dp:.tiny _Dp],y
+              cmp     .near txtic
+              bne     lostSync
+              jsr     .kbank pushTx
+              inc     .near txtic
+              bra     1$
+9$:           rts
+
+;;; lostSync: the other machine's records cannot be had: the game goes on
+;;; as one player's under a message whose key takes the title (M_NetLost,
+;;; m_menu65, as M_NetLeft), and the socket closes so the other machine
+;;; sees the relay close (its "the other player left"). The stock build
+;;; keeps the I_Error.
+lostSync:
+#ifdef NETGAME
+              lda     ##OP_CLOSE
+              jsr     .kbank push8
+              lda     ##1
+              jsr     .kbank push8
+              lda     ##0
+              jsr     .kbank push8
+              lda     ##0                   ; sock 0
+              jsr     .kbank push8
+              stz     .near _g_netgame
+              stz     .near (_g_playeringame+2)
+              jsl     long:M_NetLost
+              rts
+#else
+              pei     dp:.tiny _Dp
+              lda     .near peerhave
+              pha
+              lda     .near rec
+              pha
+              lda     ##.word0 errTic
+              ldx     ##.word2 errTic
+              brl     error
+#endif
 
 ;;; consIndex: C = the offset of tic C in a consistency ring.
 consIndex:    and     ##(CMDS - 1)
@@ -1953,7 +2085,7 @@ recByte:      ldx     .near recpos
               stz     .near recpos
               lda     .near rec             ; the tic we wait for
 #ifdef NETGAME
-              cmp     ##NAME2_TIC           ; (or a special record)
+              cmp     ##REQ_TIC             ; (or a special record)
               bcc     0$
               jsr     .kbank specialRec
               bra     done
@@ -1961,15 +2093,26 @@ recByte:      ldx     .near recpos
 #endif
               cmp     .near peerhave
               beq     1$
-              pei     dp:.tiny _Dp
+;;; Not the tic we wait for. Older: a record sent again (resend) that is
+;;; in already, dropped. Newer: records went missing (the card's block
+;;; driver empties the card's queue at every read, so a machine that
+;;; reads the level from disk loses the tics that came while it loaded):
+;;; dropped, and a REQ_TIC asks for them from peerhave, once per
+;;; REQ_WAIT unless peerhave moved since the last request.
+              sec
+              sbc     .near peerhave
+              bmi     3$
               lda     .near peerhave
-              pha
-              lda     .near rec
-              pha
-              lda     ##.word0 errTic
-              ldx     ##.word2 errTic
-              brl     error
-1$:           and     ##(CMDS - 1)
+              cmp     .near reqtic
+              bne     4$
+              lda     .near gapwait
+              beq     4$
+              jsr     .kbank reqDue
+              bcc     3$
+4$:           jsr     .kbank sendReq
+3$:           brl     payloadDone
+1$:           stz     .near gapwait         ; (the one we wait for: in)
+              and     ##(CMDS - 1)
               asl     a
               asl     a
               asl     a

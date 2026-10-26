@@ -84,6 +84,7 @@ MSG_BENCH     .equ    16              ;   benchmark result of bmDone,
 MSG_SAVEFAIL  .equ    20              ;   and a failed disk write)
 MSG_NETGAME   .equ    24              ;   not in a net game (NETGAME)
 MSG_NETLEFT   .equ    28              ;   the other player left (NETGAME)
+MSG_NETLOST   .equ    32              ;   his moves cannot be had (NETGAME)
 L_DOOM        .equ    0               ; the patch lumps in LUMPS (x 2)
 L_NGAME       .equ    2
 L_OPTION      .equ    4
@@ -981,8 +982,11 @@ answer:       ldx     .near messageKind
               rts
 2$:
 #ifdef NETGAME
-              cpx     ##MSG_NETLEFT         ; the other player left: the
-              bne     20$                   ;   title, as END GAME
+              cpx     ##MSG_NETLEFT         ; the other player left, or his
+              beq     21$                   ;   moves were lost: the title,
+              cpx     ##MSG_NETLOST         ;   as END GAME
+              bne     20$
+21$:
               jsr     .kbank clearMenus
               jsl     long:D_StartTitle
               rts
@@ -1678,6 +1682,14 @@ M_SaveFailed: lda     ##MSG_SAVEFAIL
 M_NetLeft:    lda     ##MSG_NETLEFT
               jsr     .kbank startMessage
               rtl
+;;; M_NetLost: D_Net could not get the other player's moves again after
+;;; they went missing (REQ_TIC, d_net65.s): the same, with its message.
+              .public M_NetLost
+M_NetLost:    lda     ##MSG_NETLOST
+              jsr     .kbank startMessage
+              rtl
+msgNetLost:   .ascii  "Lost the other player's moves.\n\n"
+              .asciz  "Press a key."    ; (msgTexts; here: vwcode is full)
 #endif
 
 #ifndef NETGAME
@@ -1744,7 +1756,7 @@ AS_CORE       .equ    0xe2000c        ; Core version, valid after the presence c
 msgTexts:     .long   msgNightmare, msgQuit, msgEndGame, msgSaveDead
               .long   VW_BTXT, msgSaveFail
 #ifdef NETGAME
-              .long   msgNetGame, msgNetLeft
+              .long   msgNetGame, msgNetLeft, msgNetLost
 msgNetGame:   .ascii  "You can't do that in a net game!\n\n"
               .asciz  "Press a key."
 msgNetLeft:   .ascii  "The other player left the game.\n\n"
