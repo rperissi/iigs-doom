@@ -20,7 +20,7 @@
               .extern tintPeak, tintLeft, tintShow, tintUntil
 #ifdef NETGAME
               .extern _g_resident, _g_consoleplayer, _g_deathmatch, _g_frags
-              .extern _g_netgame, _g_leveltime
+              .extern stcachenum
 #endif
               .extern tintMark, tintMarkG, tintSave, tintOut, tintC0, tintC8
 
@@ -92,6 +92,9 @@ st_oldhealth: .space  2
 largeammo:    .space  2               ; LARGEAMMO (ST_Init)
 st_running:   .space  2               ; !st_stopped
 st_refreshed: .space  2               ; !st_needrefresh
+#ifdef NETGAME
+stcachedm:    .space  2               ; the bar in STCACHE is a deathmatch's
+#endif
 st_palette:   .space  2
 st_priority:  .space  2               ; the face widget
 st_lastattackdown: .space 2           ; -1 (ST_Init)
@@ -455,15 +458,6 @@ readyNum:     lda     .near _g_fps_show
               .public ST_Ticker
 ST_Ticker:    jsl     long:M_Random
               sta     .near st_randomnumber
-#ifdef NETGAME
-              lda     .near _g_netgame      ; a net game: the whole bar again a
-              beq     0$                    ;   second in (iron 2026-10-25: the
-              lda     .near _g_leveltime    ;   ARMS label stood under the
-              cmp     ##CONST_TICRATE       ;   frags; a paint from the level
-              bne     0$                    ;   start settles it)
-              stz     .near st_refreshed
-0$:
-#endif
               jsr     .kbank readyNum       ; ST_updateWidgets
               ldx     ##0                   ; keyboxes[i] = cards[i] ? i : -1
 1$:           lda     abs:.near (PL+OFS_PL_CARDS),x
@@ -781,7 +775,17 @@ ST_doRefresh: jsr     .kbank refresh
 
 ;;; refresh: the background (and the arms background), saved for the
 ;;; restores, then all the widgets.
-refresh:      stz     dp:.tiny _Dp          ; Status background starts at ST_Y.
+refresh:
+#ifdef NETGAME
+              lda     .near _g_deathmatch   ; V_DrawRaw keeps the bar in STCACHE
+              cmp     .near stcachedm       ;   as the screen had it, the arms
+              beq     7$                    ;   background included (iron
+              sta     .near stcachedm       ;   2026-10-25: the title demo cached
+              lda     ##0xffff              ;   ARMS, the deathmatch drew it under
+              sta     .near stcachenum      ;   the frags): a bar of the other
+7$:                                         ;   kind of game draws from the lump
+#endif
+              stz     dp:.tiny _Dp          ; Status background starts at ST_Y.
               lda     ##(ST_Y * 320)
               sta     dp:.tiny _Dp
               lda     .near statusbarnum

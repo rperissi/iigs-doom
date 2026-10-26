@@ -75,6 +75,7 @@ viewpal:      .word   0               ; the palette of the view rows
 levelcopy:    .word   0               ; 1: TINTPAL to the screen (levelPalettes)
 strippal:     .word   0               ; the palette of the message strip rows
 picturenum:   .word   0xffff          ; the SHR picture on screen, -1: level
+              .public stcachenum      ; (st_stuff65.s: a deathmatch's bar)
 stcachenum:   .word   0xffff          ; the status bar in STCACHE
 
               .section zfar, bss
