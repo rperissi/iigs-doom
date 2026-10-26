@@ -12,11 +12,14 @@ the 65816 port of Doom for an accelerated IIgs. His README is kept as
 the renderer and the single player game is his work and is described
 there. This branch adds the second player and the network.
 
-**Status (October 2026): runs in emulation, not yet tried on real
-hardware.** Two instances of the CoGS build of MAME play each other
-through the live lobby in lockstep. The real card needs firmware 1.36
-(the WebSocket socket mode), which is built and not yet flashed. The
-repository is private until that is done.
+**Status (October 2026): played on real hardware.** A ROM 01 IIgs with
+an AppleSqueezer and a ROM 3 with a TransWarp GS, each with a CoGS card
+on firmware 1.36, have played deathmatch and cooperative games against
+each other and against the CoGS build of MAME through the live lobby.
+The image is in the CoGS disk catalog as `Doom CoGS Deathmatch`, so a
+card boots it like any other disk; the file is
+[disks.a2cogs.com/disks/doom-dm-hd.po](https://disks.a2cogs.com/disks/doom-dm-hd.po)
+and the same image is a release asset here.
 
 ![The main menu with Network Game](docs/images/net/menu.png)
 
@@ -33,7 +36,10 @@ the join.
 
 - **GAME**: Deathmatch or Cooperative.
 - **SKILL**, **MAP**: the usual five skills, E1M1 to E1M9.
-- **MONSTERS**: on or off (`-nomonsters`).
+- **MONSTERS**: on or off (`-nomonsters`). A deathmatch has no monsters
+  whatever this row says; the row counts in a cooperative game. (Doom
+  itself honors `-nomonsters` in both; making the row do the same is on
+  the list.)
 - **YOUR NAME**: typed, up to 8 letters, for the lobby and the leaderboard.
   Blank is DOOMGUY.
 - **ROOM CODE**: typed. Blank is the public queue, so whoever is waiting
@@ -105,8 +111,18 @@ the WebSocket framing; Doom sees bytes.
 
 Latency is the lobby's round trip through Cloudflare. On the bench, two
 emulated machines on one Mac, the game holds the full 35 tics a second
-through the live lobby. Two real machines in different cities have not
-been tried.
+through the live lobby. Two real machines in one room, through the
+lobby, play at the frame rate of the slower one. Two real machines in
+different cities have not been tried.
+
+A record the other machine missed (a slow level load on the card's
+block driver can drop one) is asked for again by tic number and resent
+from a ring of the last 16; if it cannot be recovered, or the other
+machine is silent for 30 s, or the consistency words disagree, the
+game stops with a message and goes back to the title instead of an
+error exit. END GAME and QUIT in a net game close the socket, and the
+other machine gets "the other player left the game" and returns to the
+title on a key. NEW GAME is not offered during a net game.
 
 ## Building and running the bench
 
@@ -138,11 +154,15 @@ Calypsi assembler as in BUILD.md.
 
 ## What needs doing
 
-- Real hardware. Firmware 1.36 on two cards, this image on both, a game.
+- The MONSTERS row in a deathmatch (see above).
+- A game whose lobby room restarts mid-match ends with "lost the other
+  player's moves"; reconnecting and resuming is not built.
 - The frame rate is Webifi's 4 FPS on a 12 MHz accelerator; nothing here
   changes it. Both machines run at the slower machine's pace.
 - Two players only. Doom allowed four; the swap model could take more
-  but the lobby rooms are for two.
+  but the lobby rooms are for two. A third player on the same room code
+  opens a new room and waits for a fourth.
+- Two machines far apart. Everything so far was one room or one Mac.
 
 ## Credits and license
 
