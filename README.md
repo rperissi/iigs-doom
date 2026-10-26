@@ -111,9 +111,8 @@ the WebSocket framing; Doom sees bytes.
 
 Latency is the lobby's round trip through Cloudflare. On the bench, two
 emulated machines on one Mac, the game holds the full 35 tics a second
-through the live lobby. Two real machines in one room, through the
-lobby, play at the frame rate of the slower one. Two real machines in
-different cities have not been tried.
+through the live lobby. Two real machines play at the frame rate of the
+slower one; the wire is each card's WAN link to Cloudflare and back.
 
 A record the other machine missed (a slow level load on the card's
 block driver can drop one) is asked for again by tic number and resent
@@ -162,7 +161,6 @@ Calypsi assembler as in BUILD.md.
 - Two players only. Doom allowed four; the swap model could take more
   but the lobby rooms are for two. A third player on the same room code
   opens a new room and waits for a fourth.
-- Two machines far apart. Everything so far was one room or one Mac.
 
 ## Credits and license
 
