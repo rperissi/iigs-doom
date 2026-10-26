@@ -830,9 +830,10 @@ tickCard:     jsr     .kbank findCard
               rts
 1$:           ldx     ##0xffff
               status  errNoCard, 0
-toError:      lda     ##JP_ERROR
-              sta     .near netphase
-tickNone:     rts
+toError:      jsr     .kbank closeSock      ; a seat left open past the error
+              lda     ##JP_ERROR            ;   kept the lobby's "waiting" at 1
+              sta     .near netphase        ;   (iron 2026-10-26, NO OTHER PLAYER
+tickNone:     rts                           ;   CAME, socket open 6 more min)
 
 ;;; Its network: TIME not 0 (asked again each 2 s, NET_WAIT s).
 tickTime:     jsr     .kbank pollRx
