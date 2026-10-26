@@ -49,6 +49,7 @@
               ;; The net menu (d_net65.s, bank 5) drives the menu through
               ;; these; its code hangs on three same-size hooks below.
               .extern D_NetMainMenu, D_NetDrawHook, D_NetResponder, D_NetMenuOpen
+              .extern D_NetLeave
               .public currentMenu, itemOn, menuversion, menuX, menuY, menuLine, menuPrevItem
               .public itemLump, itemRoutine, uiMain, newGame, options, loadGame
               .public saveGame, quitDoom, uiWriteLine, uiLineWidth, MT_X, MT_Y, MT_P, MT_W
@@ -999,7 +1000,11 @@ answer:       ldx     .near messageKind
               lda     .near _g_singledemo
               beq     3$
               jsl     long:G_CheckDemoStatus
-3$:           jsr     .kbank clearMenus
+3$:
+#ifdef NETGAME
+              jsl     long:D_NetLeave       ; (a net game: the other machine
+#endif                                      ;   gets "the other player left")
+              jsr     .kbank clearMenus
               jsl     long:D_StartTitle
 9$:           rts
 
@@ -1025,7 +1030,12 @@ startMessage: sta     .near messageKind
 ;;; ---------------------------------------------------------------------------
 ;;; The routines of the items, with C = the choice.
 ;;; ---------------------------------------------------------------------------
-newGame:      lda     ##MENU_NEW            ; the skill menu at "hurt me
+newGame:
+#ifdef NETGAME
+              lda     .near _g_netgame      ; (Doom: not in a net game; END
+              bne     notNet                ;   GAME leaves it first)
+#endif
+              lda     ##MENU_NEW            ; the skill menu at "hurt me
               jsr     .kbank setupMenu      ;   plenty"
               lda     ##2
               sta     .near itemOn
@@ -1067,12 +1077,8 @@ saveGame:
 2$:           rts
 quitDoom:     lda     ##MSG_QUIT
               bra     startMessage
-endGame:
-#ifdef NETGAME
-              lda     .near _g_netgame
-              bne     notNet
-#endif
-              lda     ##MSG_ENDGAME
+endGame:                                    ; (in a net game too: its yes
+              lda     ##MSG_ENDGAME         ;   leaves the game, D_NetLeave)
               bra     startMessage
 chooseSkill:  cmp     ##NIGHTMARE           ; nightmare: are you sure
               bne     1$

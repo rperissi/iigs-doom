@@ -760,6 +760,13 @@ turnHead:     lda     .near (PL+OFS_PL_MO)  ; Angle from player to attacker.
               .public ST_Drawer, ST_doRefresh
 ST_Drawer:    lda     .near _g_menuactive
               bne     3$
+#ifdef NETGAME
+              lda     .near _g_deathmatch   ; the bar on the screen is of the
+              cmp     .near stcachedm       ;   other kind of game (iron showed
+              beq     4$                    ;   ARMS under the frags): whole
+              stz     .near st_refreshed    ;   bar again (refresh sets stcachedm)
+4$:
+#endif
               lda     .near st_refreshed
               bne     2$
               jsr     .kbank refresh

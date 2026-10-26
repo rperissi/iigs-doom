@@ -23,6 +23,9 @@
 #include "tics.inc"
 
               .extern _Dp, D_DoomMain, D_PostEvent
+#ifdef NETGAME
+              .extern D_NetLeave
+#endif
               .extern IIGS_SelectKeyboard, IIGS_StopStealth, IIGS_ResetSystem, IIGS_StopInterrupts
               .extern bmAccelOff, bmAccelBack
               .extern iigs_adbq, iigs_adbqhead, iigs_adbqtail
@@ -312,7 +315,11 @@ I_InitGraphics:
               lda     ##1
               sta     .near isGraphicsModeSet
               rtl
-I_Quit:       jsr     .kbank shutdown
+I_Quit:
+#ifdef NETGAME
+              jsl     long:D_NetLeave       ; (the other machine: "left")
+#endif
+              jsr     .kbank shutdown
               jmp     long:quitToBasic
 I_Error:      tsc                           ; the first value (bank 0)
               clc
@@ -322,6 +329,9 @@ I_Error:      tsc                           ; the first value (bank 0)
               sta     .near PF_FMT
               lda     dp:.tiny (_Dp+2)
               sta     .near (PF_FMT+2)
+#ifdef NETGAME
+              jsl     long:D_NetLeave
+#endif
               jsr     .kbank shutdown
               jsr     .kbank textMode
               lda     ##10

@@ -136,7 +136,7 @@ seat() {
     [ "$s" = B ] && [ -n "$THROTTLE_B" ] && nothr=   #   load takes real seconds)
     ( cd "$dir" && { [ -n "$volurl" ] && export COGS_VOL_URL="$volurl"; } ; \
       SDL_VIDEO_DRIVER=dummy SDL_VIDEODRIVER=dummy SDL_MAC_BACKGROUND_APP=1 \
-      COGS_EMU_NVRAM="$ROOT/$dir/cogs_nv" \
+      COGS_EMU_NVRAM="$ROOT/$dir/cogs_nv" COGS_EMU_FLASHCACHE="$ROOT/$dir/flashcache" \
       PROBE_DISKS="$disks" PROBE_SECONDS="$RUN" PROBE_GAMETIC="$G" PROBE_TICGATE="$NG" \
       PROBE_TICSHR="$TICS" PROBE_TICEXIT=1 PROBE_TEXTEXIT=1 PROBE_DUMP="$DUMP" \
       PROBE_TICPRESS="$keys" PROBE_PRESS="$press" PROBE_POKE="$POKE" PROBE_TICPOKE="$TICPOKE" \

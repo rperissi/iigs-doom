@@ -98,6 +98,8 @@ REQ_TIC       .equ    0xfffc          ;   send the records from tic X again
                                       ;   (the lowest special tic)
 SENT          .equ    16              ; the records sent, kept for REQ_TIC
 REQ_WAIT      .equ    35              ; tics between two requests of a gap
+NET_STALL     .equ    (30 * 35)       ; tics with no record in before the
+                                      ;   other machine counts as gone
 
 ;;; The page (m_menu65.s: MENU_SOUND, no menu of its own now, is its
 ;;; number; the skull goes by menuX, menuY and menuLine of it).
@@ -201,6 +203,7 @@ gapwait:      .space  2               ; 1: records of the other player are
 reqtic:       .space  2               ; the tic the last REQ_TIC asked for
 reqtime:      .space  4               ;   and when (I_GetTime)
 reqrec:       .space  10              ;   the REQ_TIC record
+lastrx:       .space  2               ; when the last record came (I_GetTime)
 
               .section zfar, bss
 peercmds:     .space  (CMDS * 8)      ; the other player's commands, as cmds
@@ -989,6 +992,8 @@ startGame:    lda     ##1
               jsl     long:P_SwapTo
               stz     .near netmaketic      ; (netsent and peerhave: 0 since
               stz     .near maketic         ;   the connect)
+              jsl     long:I_GetTime        ; the stall watch starts now
+              sta     .near lastrx
               stz     .near (maketic+2)
               stz     .near _g_gametic
               stz     .near (_g_gametic+2)
@@ -1560,7 +1565,16 @@ D_NetUpdate:  lda     .near _g_netgame
               jsr     .kbank reqDue         ;   lost the same way): ask again
               bcc     5$
               jsr     .kbank sendReq
-5$:
+5$:           lda     .near peerhave        ; waiting on the other machine
+              cmp     .near maketic         ;   (netmaketic would be peerhave)
+              bpl     6$
+              jsl     long:I_GetTime        ; for NET_STALL: it is gone (a
+              sec                           ;   quit or a reset leaves the
+              sbc     .near lastrx          ;   socket open until TCP gives
+              cmp     ##NET_STALL           ;   up; the game would freeze)
+              bcc     6$
+              jsr     .kbank lostSync
+6$:
 #endif
               lda     .near peerhave        ; netmaketic = min(maketic, peerhave)
               sec
@@ -1689,6 +1703,21 @@ resend:       lda     .near (rec+2)
 ;;; keeps the I_Error.
 lostSync:
 #ifdef NETGAME
+              jsr     .kbank closeSock
+              stz     .near _g_netgame
+              stz     .near (_g_playeringame+2)
+              jsl     long:M_NetLost
+              rts
+
+;;; closeSock: CLOSE sock 0 if a connect got that far (the card is there:
+;;; push8 spins on its status otherwise). The relay then closes the other
+;;; machine's socket: its "the other player left". netstate: NS_NONE.
+closeSock:    lda     .near netstate
+              cmp     ##NS_CONNECTED
+              bcc     9$
+              cmp     ##NS_FAILED
+              beq     9$
+              stz     .near netstate
               lda     ##OP_CLOSE
               jsr     .kbank push8
               lda     ##1
@@ -1697,10 +1726,18 @@ lostSync:
               jsr     .kbank push8
               lda     ##0                   ; sock 0
               jsr     .kbank push8
+9$:           rts
+
+;;; void D_NetLeave(void): this machine leaves the net game: END GAME's
+;;; yes (m_menu65), I_Quit and I_Error (i_iigs65), so the other machine
+;;; gets "the other player left" at once instead of a frozen game (a GS
+;;; gone to ProDOS keeps its socket open until TCP gives up). Also the
+;;; one-player game after a join that connected but never started.
+              .public D_NetLeave
+D_NetLeave:   jsr     .kbank closeSock
               stz     .near _g_netgame
               stz     .near (_g_playeringame+2)
-              jsl     long:M_NetLost
-              rts
+              rtl
 #else
               pei     dp:.tiny _Dp
               lda     .near peerhave
@@ -1805,6 +1842,10 @@ D_NetCmds:    lda     .near _g_gametic
               lda     long:cons,x
               cmp     .near NT_T
               beq     4$
+#ifdef NETGAME
+              jsr     .kbank lostSync       ; the games diverged: the message
+              bra     4$                    ;   and the title, not I_Error
+#else
               pha                           ; consistency failure (%i should
               lda     .near _g_gametic      ;   be %i) at tic %i
               pha
@@ -1815,6 +1856,7 @@ D_NetCmds:    lda     .near _g_gametic
               lda     ##.word0 errCons
               ldx     ##.word2 errCons
               brl     error
+#endif
 4$:           lda     .near _g_gametic      ; the words of this tic: the
               jsr     .kbank consIndex      ;   console player's (resident)
               jsr     .kbank ownRing
@@ -2112,6 +2154,12 @@ recByte:      ldx     .near recpos
 4$:           jsr     .kbank sendReq
 3$:           brl     payloadDone
 1$:           stz     .near gapwait         ; (the one we wait for: in)
+#ifdef NETGAME
+              pha
+              jsl     long:I_GetTime
+              sta     .near lastrx
+              pla
+#endif
               and     ##(CMDS - 1)
               asl     a
               asl     a
