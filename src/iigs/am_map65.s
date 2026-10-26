@@ -26,6 +26,9 @@
               .extern COLW, newPage, MA
               .extern FixedMul, FixedReciprocal, FixedApproxDiv, FixedMulAngle
               .extern finesineapprox, finecosineapprox, _Mul32, IIGS_MulLo16, _Div16
+#ifdef NETGAME
+              .extern _g_netgame, _g_playeringame, _g_consoleplayer, P_PlayerMoHealth
+#endif
 
 PL            .equ    _g_player
 AM_ACTIVE     .equ    1               ; automapmode
@@ -60,6 +63,10 @@ COLOR_TELE    .equ    119
 COLOR_SECR    .equ    252
 COLOR_UNSN    .equ    104
 COLOR_SNGL    .equ    208
+COLOR_OTHR    .equ    252             ; the other player (iddt twice): the
+                                      ;   magenta of the secret lines, the
+                                      ;   one color of the map palette that
+                                      ;   is not a wall's or ours
 NUMPLYRLINES  .equ    7
 SHRBUF        .equ    0x012000        ; the back buffer, 160 bytes a row
 SHR_SCREEN    .equ    0xe12000        ; the screen
@@ -128,6 +135,11 @@ AM_LN:        .space  2               ; its length in bytes
 AM_ON:        .space  2               ; the length of the old list
 AM_OVF:       .space  2               ; the new list is full
 AM_CN:        .space  2               ; copyList: the length
+#ifdef NETGAME
+              .public am_cheat
+am_cheat:     .space  2               ; iddt: 1 all the lines, 2 and the
+                                      ;   other player (m_cheat65.s)
+#endif
               .section coldfar, bss
 AM_LISTS:     .space  4 * AM_LMAX     ; the bytes of the lines: two lists
               .section znear, bss
@@ -182,6 +194,10 @@ RF_OX         .equ    MIN16           ; the origin, map units (int16)
 RF_OY         .equ    (MIN16+2)
 RF_CX         .equ    MAX16           ; the origin on the screen
 RF_CY         .equ    (MAX16+2)
+AO_COL        .equ    MIN16           ; drawPlayers (after the walls): the
+AO_OTH        .equ    (MIN16+2)       ;   color of an arrow, the other
+AO_ANG        .equ    MAX16           ;   player's arrow (its full turn), ours
+                                      ;   angle (high word)
 RF_MC         .equ    AMD_X           ; |s cos|, |s sin| (0.16; s: the pixels
 RF_MS         .equ    (AMD_X+2)       ;   of a map unit); RF_MC 0xffff: none
 RF_SC         .equ    AMD_Y           ; their signs (0, 0x8000)
@@ -1717,6 +1733,10 @@ line:         ldy     ##OFS_LINE_R_FLAGS    ; seen
               lda     [.tiny LPTR],y
               and     ##ML_MAPPED
               bne     mapped
+#ifdef NETGAME
+              lda     .near am_cheat        ; iddt: all the lines as seen
+              bne     mapped
+#endif
               lda     .near (PL+OFS_PL_POWERS+2*CONST_PW_ALLMAP) ; else with the
               beq     skipRun               ;   computer map
               ldy     ##OFS_LINE_FLAGS
@@ -2374,8 +2394,14 @@ wallRotation: jsr     .kbank playerMo
               rts
 
 ;;; drawPlayers: AM_drawPlayers: the arrow of the player (turned with the map
-;;; in the rotation mode).
-drawPlayers:  jsr     .kbank playerMo       ; the place: mo->x >> 4, mo->y >> 4
+;;; in the rotation mode); in a net game with iddt twice, the other player's
+;;; arrow first (drawOther: it needs the frame's rotation, this clobbers it).
+drawPlayers:
+#ifdef NETGAME
+              stz     .near AO_OTH          ; (MIN16 is the fast turn's in a
+              jsr     .kbank drawOther      ;   rotate frame: stale here)
+#endif
+              jsr     .kbank playerMo       ; the place: mo->x >> 4, mo->y >> 4
               ldy     ##OFS_MO_X
               jsr     .kbank moMap
               sta     .near AMD_X
@@ -2403,7 +2429,11 @@ drawPlayers:  jsr     .kbank playerMo       ; the place: mo->x >> 4, mo->y >> 4
               stz     .near (RT_OX+2)
               stz     .near RT_OY
               stz     .near (RT_OY+2)
-3$:           stz     .near AM_I            ; the lines of the arrow
+3$:           lda     ##COLOR_SNGL
+              sta     .near AO_COL
+;;; arrowLines: the lines of the arrow at AMD_X, AMD_Y, turned by AM_TURN
+;;; (an angle's high word; 0: not turned), in the color AO_COL.
+arrowLines:   stz     .near AM_I            ; the lines of the arrow
 4$:           lda     .near AM_I            ; ML = playerArrow[i]
               asl     a
               asl     a
@@ -2423,7 +2453,7 @@ drawPlayers:  jsr     .kbank playerMo       ; the place: mo->x >> 4, mo->y >> 4
               jsr     .kbank arrowPoint
               ldx     ##.near (ML+8)
               jsr     .kbank arrowPoint
-              lda     ##COLOR_SNGL
+              lda     .near AO_COL
               sta     .near AM_COLOR
               jsr     .kbank drawMline
               inc     .near AM_I
@@ -2432,10 +2462,78 @@ drawPlayers:  jsr     .kbank playerMo       ; the place: mo->x >> 4, mo->y >> 4
               bcc     4$
               rts
 
+#ifdef NETGAME
+;;; drawOther: iddt twice in a net game: the other player's arrow (COLOR_OTHR)
+;;; at his place, turned by his angle. In the rotation mode his place turns
+;;; with the lines (RT_C, RT_S, RT_OX, RT_OY are still wallRotation's here)
+;;; and his arrow by ANG90 - our angle besides, the full turn of arrowPoint
+;;; (AO_OTH), not the ANG90 shortcut of our own arrow.
+drawOther:    lda     .near am_cheat
+              cmp     ##2
+              bne     8$
+              lda     .near _g_netgame
+              beq     8$
+              lda     .near (_g_playeringame+2)
+              bne     0$
+8$:           rts
+0$:           jsr     .kbank playerMo       ; our angle
+              ldy     ##(OFS_MO_ANGLE+2)
+              lda     [.tiny (_Dp+4)],y
+              sta     .near AO_ANG
+              lda     .near _g_consoleplayer ; his mobj
+              eor     ##1
+              jsl     long:P_PlayerMoHealth
+              sta     dp:.tiny (_Dp+4)
+              stx     dp:.tiny (_Dp+6)
+              ora     dp:.tiny (_Dp+6)
+              beq     9$                    ; (not spawned yet)
+              ldy     ##OFS_MO_X            ; his place
+              jsr     .kbank moMap
+              sta     .near AMD_X
+              stx     .near (AMD_X+2)
+              ldy     ##OFS_MO_Y
+              jsr     .kbank moMap
+              sta     .near AMD_Y
+              stx     .near (AMD_Y+2)
+              ldy     ##(OFS_MO_ANGLE+2)    ; his angle
+              lda     [.tiny (_Dp+4)],y
+              pha
+              lda     .near automapmode
+              bit     ##AM_ROTATE
+              beq     1$
+              ldx     ##.near AMD_X         ; the rotation mode: his place
+              jsr     .kbank rotatePoint    ;   with the lines, his arrow
+              pla                           ;   by ANG90 - ours besides
+              clc
+              adc     ##0x4000
+              sec
+              sbc     .near AO_ANG
+              bra     2$
+1$:           pla
+2$:           sta     .near AM_TURN
+              beq     3$
+              jsr     .kbank sinCos
+3$:           stz     .near RT_OX           ; (the arrow turns about 0)
+              stz     .near (RT_OX+2)
+              stz     .near RT_OY
+              stz     .near (RT_OY+2)
+              lda     ##1
+              sta     .near AO_OTH
+              lda     ##COLOR_OTHR
+              sta     .near AO_COL
+              jsr     .kbank arrowLines
+              stz     .near AO_OTH
+9$:           rts
+#endif
+
 ;;; arrowPoint: the point at near X turned (if AM_TURN), then moved to the
 ;;; place of the player.
 arrowPoint:   lda     .near AM_TURN
               beq     1$
+#ifdef NETGAME
+              lda     .near AO_OTH          ; the other player: the full turn
+              bne     2$
+#endif
               lda     .near automapmode     ; the rotation mode turns by ANG90:
               bit     ##AM_ROTATE           ;   x, y = -y, x without products
               beq     2$                    ;   (the full map keeps its math)

@@ -134,7 +134,9 @@ JP_ERROR      .equ    7               ;   it failed (the lines say why)
               .extern _Dp, _g_player, _g_gametic, maketic, cmds
               .extern _g_resident, _g_consoleplayer, _g_playeringame
               .extern _g_deathmatch, _g_netgame, _g_nomonsters, P_SwapTo
+#ifdef NETGAME
               .extern M_NetLeft
+#endif
               .extern _g_frags
               .extern I_Error, I_GetTime, prndindex, _g_psave, G_ExitLevel
 #ifdef NETGAME
@@ -1907,7 +1909,11 @@ closedByte:   ldx     .near rxidx
 ;;; where NETWORK GAME is back. (Was I_Error, a screen with no way out.)
               stz     .near _g_netgame
               stz     .near (_g_playeringame+2)
+#ifdef NETGAME
               jsl     long:M_NetLeft
+#else
+              brl     failed                ; (the stock build: no net game)
+#endif
               brl     payloadDone
 done:         brl     payloadDone
 

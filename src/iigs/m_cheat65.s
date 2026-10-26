@@ -13,14 +13,18 @@
               .extern _Dp, _g_player, _g_gameaction, _g_fps_show
               .extern P_GivePower, G_ExitLevel
 #ifdef NETGAME
-              .extern _g_netgame, netExitReq
+              .extern _g_netgame, netExitReq, am_cheat
 #endif
 
 PL            .equ    _g_player
 GOD_HEALTH    .equ    100             ; cheat grants: health
 IDFA_ARMOR    .equ    200             ;   of iddqd, the armor of idfa and
 IDFA_ARMOR_CLASS .equ 2               ;   idkfa
+#ifdef NETGAME
+NUMCHEATS     .equ    16              ; (with iddt)
+#else
 NUMCHEATS     .equ    15
+#endif
 EV_KEYDOWN    .equ    0
 EV_DATA1      .equ    2
 GA_VICTORY    .equ    7
@@ -47,11 +51,17 @@ seqClev:      .asciz  "idclev"
 seqEnd:       .asciz  "idend"
 seqRocket:    .asciz  "idrocket"
 seqRate:      .asciz  "idrate"
+#ifdef NETGAME
+seqDdt:       .asciz  "iddt"
+#endif
 seqStart:     .word   seqChoppers - seqs, seqGod - seqs, seqKfa - seqs, seqFa - seqs
               .word   seqNoclip - seqs, seqBeholdV - seqs, seqBeholdS - seqs
               .word   seqBeholdI - seqs, seqBeholdR - seqs, seqBeholdA - seqs
               .word   seqBeholdL - seqs, seqClev - seqs, seqEnd - seqs
               .word   seqRocket - seqs, seqRate - seqs
+#ifdef NETGAME
+              .word   seqDdt - seqs
+#endif
 msgDqdOn:     .asciz  "Degreelessness Mode On"
 msgDqdOff:    .asciz  "Degreelessness Mode Off"
 msgKfa:       .asciz  "Very Happy Ammo Added"
@@ -107,10 +117,12 @@ C_Responder:  lda     [.tiny _Dp]
               stz     abs:.near CHT_P,x
 #ifdef NETGAME
               lda     .near _g_netgame      ; the net game: idclev (the level
-              beq     5$                    ;   ends on both machines) and
-              cpx     ##(2 * 11)            ;   idrate only
+              beq     5$                    ;   ends on both machines), idrate
+              cpx     ##(2 * 11)            ;   and iddt only
               beq     5$
               cpx     ##(2 * 14)
+              beq     5$
+              cpx     ##(2 * 15)
               bne     6$
 5$:
 #endif
@@ -129,6 +141,9 @@ cheats:       .word   .word0 cheatChoppers, .word0 cheatGod, .word0 cheatKfa
               .word   .word0 cheatBeholdS, .word0 cheatBeholdI, .word0 cheatBeholdR
               .word   .word0 cheatBeholdA, .word0 cheatBeholdL, .word0 cheatClev
               .word   .word0 cheatEnd, .word0 cheatRocket, .word0 cheatRate
+#ifdef NETGAME
+              .word   .word0 cheatDdt
+#endif
 
 ;;; message: the message of the player is the string at X (its low word)
 ;;; in bank C.
@@ -303,3 +318,15 @@ cheatRate:    lda     .near _g_fps_show
               ldx     ##.word0 msgFpsOn
               lda     ##.word2 msgFpsOn
               brl     message
+
+#ifdef NETGAME
+;;; iddt: the automap shows all the lines, then the other player too, then
+;;; neither (am_map65.s). As Doom, no message.
+cheatDdt:     lda     .near am_cheat
+              inc     a
+              cmp     ##3
+              bcc     1$
+              lda     ##0
+1$:           sta     .near am_cheat
+              rts
+#endif

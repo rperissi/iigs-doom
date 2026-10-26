@@ -20,6 +20,7 @@
               .extern tintPeak, tintLeft, tintShow, tintUntil
 #ifdef NETGAME
               .extern _g_resident, _g_consoleplayer, _g_deathmatch, _g_frags
+              .extern _g_netgame, _g_leveltime
 #endif
               .extern tintMark, tintMarkG, tintSave, tintOut, tintC0, tintC8
 
@@ -454,6 +455,15 @@ readyNum:     lda     .near _g_fps_show
               .public ST_Ticker
 ST_Ticker:    jsl     long:M_Random
               sta     .near st_randomnumber
+#ifdef NETGAME
+              lda     .near _g_netgame      ; a net game: the whole bar again a
+              beq     0$                    ;   second in (iron 2026-10-25: the
+              lda     .near _g_leveltime    ;   ARMS label stood under the
+              cmp     ##CONST_TICRATE       ;   frags; a paint from the level
+              bne     0$                    ;   start settles it)
+              stz     .near st_refreshed
+0$:
+#endif
               jsr     .kbank readyNum       ; ST_updateWidgets
               ldx     ##0                   ; keyboxes[i] = cards[i] ? i : -1
 1$:           lda     abs:.near (PL+OFS_PL_CARDS),x
