@@ -131,6 +131,10 @@ seat() {
     ram=8M                                       # RAM_A / RAM_B: 4M reads the
     [ "$s" = A ] && ram="${RAM_A:-8M}"         #   levels from the card (the
     [ "$s" = B ] && ram="${RAM_B:-8M}"         #   lost-records case)
+    tics="$TICS"                                 # TICS_A / TICS_B: that seat's
+    [ "$s" = A ] && tics="${TICS_A:-$TICS}"      #   dump and exit tics (one seat
+    [ "$s" = B ] && tics="${TICS_B:-$TICS}"      #   leaving early: the other's
+                                                 #   "the other player left")
     nothr=-nothrottle                            # THROTTLE_A / THROTTLE_B=1:
     [ "$s" = A ] && [ -n "$THROTTLE_A" ] && nothr=   #   that seat at 1x (its level
     [ "$s" = B ] && [ -n "$THROTTLE_B" ] && nothr=   #   load takes real seconds)
@@ -138,7 +142,7 @@ seat() {
       SDL_VIDEO_DRIVER=dummy SDL_VIDEODRIVER=dummy SDL_MAC_BACKGROUND_APP=1 \
       COGS_EMU_NVRAM="$ROOT/$dir/cogs_nv" COGS_EMU_FLASHCACHE="$ROOT/$dir/flashcache" \
       PROBE_DISKS="$disks" PROBE_SECONDS="$RUN" PROBE_GAMETIC="$G" PROBE_TICGATE="$NG" \
-      PROBE_TICSHR="$TICS" PROBE_TICEXIT=1 PROBE_TEXTEXIT=1 PROBE_DUMP="$DUMP" \
+      PROBE_TICSHR="$tics" PROBE_TICEXIT=1 PROBE_TEXTEXIT=1 PROBE_DUMP="$DUMP" \
       PROBE_TICPRESS="$keys" PROBE_PRESS="$press" PROBE_POKE="$POKE" PROBE_TICPOKE="$TICPOKE" \
       PROBE_EXTRA="${PROBE_EXTRA:-/dev/null}" \
       "$ROOT/$MAME" apple2gs -rompath "$ROOT/roms" -ramsize "$ram" -sl$slot cogs \

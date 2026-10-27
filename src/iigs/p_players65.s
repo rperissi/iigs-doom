@@ -35,6 +35,7 @@
               .extern spawnPlayer, DM_SOURCE, SP_MT, P_Random, _Mod16
               .extern P_CheckPosition, P_SpawnMobj, S_StartSound, P_SpawnSpecials
               .extern _g_gameaction
+              .extern netround
 
 GA_LOADLEVEL  .equ    1               ; (g_game65.s)
 MAX_DMSTARTS  .equ    10              ; deathmatch starts kept, as Doom
@@ -649,6 +650,7 @@ finishOne:    jsl     long:P_SwapTo
 P_PlayersLoadLevel:
               stz     .near _g_frags
               stz     .near (_g_frags+2)
+              stz     .near netround        ; a new round for the board
               lda     ##0
               jsr     .kbank rebornDead
               lda     .near (_g_playeringame+2)

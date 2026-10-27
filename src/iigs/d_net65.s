@@ -161,9 +161,11 @@ JP_ERROR      .equ    7               ;   it failed (the lines say why)
 #endif
 
               .section znear, bss
-              .public netmaketic, netslot
+              .public netmaketic, netslot, netround
 netmaketic:   .space  2               ; the tics that can run (D_NetUpdate)
 netslot:      .space  2               ; the card's slot, 0 before findCard
+netround:     .space  2               ; this level's round went to the board
+                                      ;   (P_PlayersLoadLevel clears it)
 cardoff:      .space  2               ;   its slot * 16 (CARD + cardoff)
 netfail:      .space  2               ; the connect result (NS_FAILED)
 nettime:      .space  4               ; the card's TIME (0: no network yet)
@@ -1322,13 +1324,17 @@ D_NetDrawName:
               rtl
 
 ;;; ---------------------------------------------------------------------------
-;;; void D_NetScore(void): G_DoCompleted in a deathmatch: the player's
-;;; frags of the level to the lobby's board, a win when he has more than
-;;; the other player, and the level played: POST /v1/score?g=doom&n=NAME
-;;; &v=N&x=frags&m=add (x=wins, x=games), HTTP requests the card makes on
+;;; void D_NetScore(void): the round of a deathmatch to the lobby's board:
+;;; the player's frags of the level, a win when he has more than the other
+;;; player, and the level played: POST /v1/score?g=doom&n=NAME&v=N
+;;; &x=frags&m=add (x=wins, x=games), HTTP requests the card makes on
 ;;; sockets 1 to 3 while the game's socket 0 goes on; nothing is read back
 ;;; (the events of other sockets are skipped by the parser). Through the
-;;; lobby only.
+;;; lobby only. From G_DoCompleted (the exit), and from every end of the
+;;; net game in a level (END GAME, QUIT, the other player left, a stall):
+;;; a deathmatch level is rarely exited, the frags were never posted
+;;; (iron 2026-10-26, 12 minutes against CHRIS, an empty board). Once a
+;;; level (netround).
 ;;; ---------------------------------------------------------------------------
               .public D_NetScore
 D_NetScore:
@@ -1337,6 +1343,11 @@ D_NetScore:
               beq     9$
               lda     .near _g_deathmatch
               beq     9$
+              lda     .near _g_usergame     ; a level is in play (not a join
+              beq     9$                    ;   that never started)
+              lda     .near netround
+              bne     9$
+              inc     .near netround
               lda     .near _g_consoleplayer
               asl     a
               tax
@@ -1704,6 +1715,7 @@ resend:       lda     .near (rec+2)
 ;;; keeps the I_Error.
 lostSync:
 #ifdef NETGAME
+              jsl     long:D_NetScore       ; the round so far
               jsr     .kbank closeSock
               stz     .near _g_netgame
               stz     .near (_g_playeringame+2)
@@ -1735,7 +1747,8 @@ closeSock:    lda     .near netstate
 ;;; gone to ProDOS keeps its socket open until TCP gives up). Also the
 ;;; one-player game after a join that connected but never started.
               .public D_NetLeave
-D_NetLeave:   jsr     .kbank closeSock
+D_NetLeave:   jsl     long:D_NetScore       ; the round so far
+              jsr     .kbank closeSock
               stz     .near _g_netgame
               stz     .near (_g_playeringame+2)
               rtl
@@ -2022,7 +2035,9 @@ hdrHi:        xba
 ;;; connByte: EV_CONNECTED: sock, result. result 0: connected.
 connByte:     ldx     .near rxidx
               cpx     ##2
-              bne     done
+              beq     0$
+              brl     payloadDone           ; (done is out of a bne's reach)
+0$:
               cmp     ##0
               bne     failed
               lda     ##NS_CONNECTED
@@ -2082,6 +2097,9 @@ closedByte:   ldx     .near rxidx
 ;;; goes on as one player's (no more records out or in; the menu pauses
 ;;; it) under a message whose key takes the title (M_NetLeft, m_menu65),
 ;;; where NETWORK GAME is back. (Was I_Error, a screen with no way out.)
+#ifdef NETGAME
+              jsl     long:D_NetScore       ; the round so far
+#endif
               stz     .near _g_netgame
               stz     .near (_g_playeringame+2)
 #ifdef NETGAME
